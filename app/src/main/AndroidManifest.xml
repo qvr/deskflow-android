@@ -1,0 +1,31 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:tools="http://schemas.android.com/tools"
+        package="com.example.simpleime">
+
+    <uses-permission
+            android:name="android.permission.BIND_INPUT_METHOD"
+            tools:ignore="ProtectedPermissions" />
+
+    <application
+            android:label="@string/app_name"
+            android:supportsRtl="true"
+            android:theme="@style/Theme.SynergyKM"
+            android:icon="@mipmap/ic_launcher">
+
+        <service
+                android:name=".SimpleKeyboardService"
+                android:permission="android.permission.BIND_INPUT_METHOD"
+                android:exported="true"
+
+                >
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                    android:name="android.view.im"
+                    android:resource="@xml/method" />
+        </service>
+
+    </application>
+
+</manifest>
