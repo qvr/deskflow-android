@@ -1,31 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-        xmlns:tools="http://schemas.android.com/tools"
-        package="com.example.simpleime">
+          xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission
             android:name="android.permission.BIND_INPUT_METHOD"
-            tools:ignore="ProtectedPermissions" />
+            tools:ignore="ProtectedPermissions"/>
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"  />
+    <uses-permission android:name="org.tfv.deskflow.CONNECTION_SERVICE_PERMISSION"/>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+    </queries>
 
     <application
+            android:name=".Application"
+            android:allowBackup="true"
+            android:dataExtractionRules="@xml/data_extraction_rules"
+            android:fullBackupContent="@xml/backup_rules"
+            android:icon="@mipmap/ic_launcher"
             android:label="@string/app_name"
-            android:supportsRtl="true"
-            android:theme="@style/Theme.SynergyKM"
-            android:icon="@mipmap/ic_launcher">
+            android:theme="@style/Theme.DeskflowKM"
+    >
+
+        <activity
+                android:name=".ui.activities.RootActivity"
+                android:exported="true"
+                android:label="@string/title_activity_settings"
+                android:theme="@style/Theme.DeskflowKM"
+                android:windowSoftInputMode="adjustResize|stateHidden"
+            >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <receiver
+                android:name=".receivers.BootReceiver"
+                android:enabled="true"
+                android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
 
         <service
-                android:name=".SimpleKeyboardService"
-                android:permission="android.permission.BIND_INPUT_METHOD"
+                android:name=".services.ConnectionService"
                 android:exported="true"
-
+                android:permission="org.tfv.deskflow.CONNECTION_SERVICE_PERMISSION"
+                android:protectionLevel="signature"
+        >
+<!--            android:process=":connection" -->
+            <intent-filter>
+                <action android:name="org.tfv.deskflow.services.ConnectionService" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".services.VirtualKeyboardService"
+                android:exported="true"
+                android:permission="android.permission.BIND_INPUT_METHOD"
                 >
             <intent-filter>
-                <action android:name="android.view.InputMethod" />
+                <action android:name="android.view.InputMethod"/>
             </intent-filter>
+
             <meta-data
                     android:name="android.view.im"
-                    android:resource="@xml/method" />
+                    android:resource="@xml/method"/>
         </service>
+        <service
+                android:name=".services.GlobalInputService"
+                android:exported="true"
+                android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+                >
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
 
+            <meta-data
+                    android:name="android.accessibilityservice"
+                    android:resource="@xml/global_input_accessibility_service_config"/>
+        </service>
     </application>
 
 </manifest>

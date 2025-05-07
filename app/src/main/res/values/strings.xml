@@ -1,4 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="ime_name">SynergyKM</string>
-    <string name="app_name">SynergyKM</string>
+    <string name="ime_name">Deskflow</string>
+    <string name="app_name">Deskflow</string>
+    <string name="title_activity_settings">Deskflow Settings</string>
+
+    <string name="logo_content_desc">Logo</string>
+
+    <string name="settings_screen_screen_name_placeholder">Screen Name</string>
+    <string name="settings_screen_screen_address_placeholder">Hostname or IP Address</string>
+    <string name="settings_screen_screen_port_placeholder">24800</string>
+    <string name="app_prefs_screen_server_use_tls">Use TLS</string>
+    <string name="bottom_bar_connected">Connected\n%s</string>
+    <string name="bottom_bar_disconnected">Disconnected\n%s</string>
+
+    <string name="permission_dialog_title_required">Permissions Required</string>
+    <string name="permission_dialog_title_optional">Grant Permission</string>
+    <string name="permission_dialog_overlay_message">Draw overlays permission is required to visualize a mouse pointer, press OK to open settings</string>
+    <string name="permission_dialog_dismissed_message">In order to properly use Deskflow for Android, you must enable these permissions.</string>
+    <string name="permission_dialog_buttons_open_settings">Open Settings</string>
+    <string name="permission_dialog_accessibility_service_message">Accessibility service is not enabled, open settings?</string>
+    <string name="settings_screen_instructions">Enter server connectivity information for the Deskflow/Deskflow server, which will control the input of this device.</string>
+    <string name="settings_screen_title"><![CDATA[Connect Keyboard & Mouse]]></string>
+    <string name="button_cancel">Cancel</string>
+    <string name="button_save">Save</string>
+    <string name="button_done">Done</string>
+    <string name="settings_screen_screen_name_label">Screen Name</string>
+    <string name="settings_screen_screen_address_label">Hostname or IP address</string>
+    <string name="settings_screen_screen_port_label">Port</string>
+    <string name="clipboard_item_label">Deskflow</string>
+    <string name="log_widget_toolbar_clear_logs">Clear logs</string>
+    <string name="log_widget_toolbar_scroll_to_bottom">Scroll to bottom</string>
+    <string name="log_widget_title">Logs</string>
+    <string name="log_widget_toolbar_filter_logs_label">Filter logs</string>
+    <string name="connection_status_widget_toolbar_stop">Stop Deskflow Client</string>
+    <string name="connection_status_widget_title">Connection</string>
+    <string name="shortcuts_list_widget_toolbar_edit">Edit</string>
+    <string name="shortcuts_list_widget_title">Shortcuts</string>
+    <string name="app_toolbar_logo_desc">Logo</string>
+    <string name="app_toolbar_button_settings">Settings</string>
+    <string name="app_toolbar_button_start">START</string>
+    <string name="app_toolbar_button_stop">STOP</string>
+    <string name="connection_status_widget_enabled_label">Client enabled</string>
+    <string name="connection_status_widget_enabled_value_true">RUNNING</string>
+    <string name="connection_status_widget_enabled_value_false">STOPPED</string>
+    <string name="connection_status_widget_connected_label">Connected</string>
+    <string name="shortcuts_list_widget_global_actions">Global Actions</string>
+    <string name="shortcuts_list_widget_editor_actions">Editor Actions</string>
+    <string name="log_widget_no_logs">No current log records</string>
+    <string name="editor_playground_widget_title">Editor Playground</string>
+    <string name="editor_playground_field_label">Editor Playground</string>
+    <string name="editor_playground_instructions">This field is made available to test keyboard functionality and capabilities.</string>
+    <string name="editor_playground_field_placeholder">Enter any text you\'d like...</string>
+    <string name="connection_status_widget_header_status_connecting">Connecting...</string>
+    <string name="connection_status_widget_header_status_connected">Connected</string>
+    <string name="connection_status_widget_header_status_stopped">Stopped</string>
+    <string name="global_input_service_notification_channel_name">Deskflow</string>
+    <string name="global_input_service_notification_channel_description">Notications related to Deskflow input</string>
+    <string name="global_input_service_notification_ime_not_setup">Deskflow Keyboard is not currently active.</string>
+    <string name="global_input_service_notification_action_open_keyboard_settings">Open Keyboard Settings</string>
+    <string name="toast_settings_saved">Successfully saved settings.</string>
+    <string name="permission_dialog_notifications_message"><![CDATA[Enable notifications in order for Deskflow connectivity & clipboard event information.]]></string>
+    <string name="permission_dialog_buttons_dismiss">Ignore</string>
+    <string name="permission_dialog_nearby_devices_message">Deskflow needs to be able to search for nearby devices on your network.</string>
+    <string name="permission_dialog_ime_enabled_message">In order to use Deskflow, you must enable the Deskflow keyboard in settings.</string>
+
+
 </resources>

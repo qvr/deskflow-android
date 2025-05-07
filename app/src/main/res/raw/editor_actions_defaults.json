@@ -1,0 +1,76 @@
+[
+  {
+    "actionId": 1,
+    "label": "Select All",
+    "defaultShortcutKeys": [
+      "Control+a",
+      "Super+a",
+      "Meta+a"
+    ]
+  },
+  {
+    "actionId": 2,
+    "label": "Copy",
+    "defaultShortcutKeys": [
+      "Control+c",
+      "Meta+c",
+      "Super+c"
+    ]
+  },
+  {
+    "actionId": 3,
+    "label": "Cut",
+    "defaultShortcutKeys": [
+      "Control+x",
+      "Meta+x",
+      "Super+x"
+    ]
+  },
+  {
+    "actionId": 4,
+    "label": "Paste",
+    "defaultShortcutKeys": [
+      "Control+v",
+      "Meta+v",
+      "Super+v"
+    ]
+  },
+  {
+    "actionId": 5,
+    "label": "Cursor Left w/Selection",
+    "specialKey": "Left"
+  },
+  {
+    "actionId": 6,
+    "label": "Cursor Right w/Selection",
+    "specialKey": "Right"
+  },
+  {
+    "actionId": 7,
+    "label": "Backspace",
+    "specialKey": "BackSpace"
+  },
+  {
+    "actionId": 8,
+    "label": "Delete",
+    "specialKey": "Delete"
+  },
+  {
+    "actionId": 9,
+    "label": "Undo",
+    "defaultShortcutKeys": [
+      "Control+z",
+      "Meta+z",
+      "Super+z"
+    ]
+  },
+  {
+    "actionId": 10,
+    "label": "Redo",
+    "defaultShortcutKeys": [
+      "Control+Shift+z",
+      "Meta+Shift+z",
+      "Super+Shift+z"
+    ]
+  }
+]

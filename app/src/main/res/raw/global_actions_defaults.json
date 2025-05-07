@@ -1,0 +1,137 @@
+[
+  {
+    "actionId": 1,
+    "label": "Back",
+    "defaultShortcutKeys": [
+      "Escape"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 2,
+    "label": "Home",
+    "defaultShortcutKeys":  [
+      "Control+h",
+      "Meta+h",
+      "Super+h"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 3,
+    "label": "Recent Apps",
+    "defaultShortcutKeys":  [
+      "Alt+Tab",
+      "Meta+Tab",
+      "Super+Tab"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 4,
+    "label": "Notifications",
+    "defaultShortcutKeys":  [
+      "Control+0",
+      "Meta+0",
+      "Super+0"
+    ],
+    "ignoreIME": true
+
+  },
+  {
+    "actionId": 5,
+    "label": "Quick Settings",
+    "defaultShortcutKeys":  [
+      "Control+,",
+      "Meta+,",
+      "Super+,"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 6,
+    "label": "Power Dialog",
+    "defaultShortcutKeys":  [
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 8,
+    "label": "Lock Screen",
+    "defaultShortcutKeys":  [
+      "Control+L",
+      "Meta+L",
+      "Super+L"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 9,
+    "label": "Screenshot",
+    "defaultShortcutKeys":  [
+      "Control+4",
+      "Meta+4",
+      "Super+4"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 10,
+    "label": "Headset Hook",
+    "defaultShortcutKeys":  [],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 13,
+    "label": "Accessibility Shortcut",
+    "defaultShortcutKeys":  [
+      "Control+;",
+      "Meta+;",
+      "Super+;"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 16,
+    "label": "Dpad Up",
+    "defaultShortcutKeys":  [
+      "Up"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 17,
+    "label": "Dpad Down",
+    "defaultShortcutKeys":  [
+      "Down"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 18,
+    "label": "Dpad Left",
+    "defaultShortcutKeys":  [
+      "Left"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 19,
+    "label": "Dpad Right",
+    "defaultShortcutKeys":  [
+      "Right"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 20,
+    "label": "Dpad Center",
+    "defaultShortcutKeys":  [
+      "Control+Return",
+      "Meta+Return",
+      "Super+Return",
+      "Return"
+    ],
+    "ignoreIME": false
+  }
+]

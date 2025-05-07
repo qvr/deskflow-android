@@ -1,5 +1,7 @@
 pluginManagement {
     repositories {
+        maven { setUrl("https://jitpack.io") }
+
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -8,17 +10,21 @@ pluginManagement {
             }
         }
         mavenCentral()
+
         gradlePluginPortal()
     }
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        maven { setUrl("https://jitpack.io") }
         google()
         mavenCentral()
     }
 }
 
-rootProject.name = "SynergyKM"
-include(":app")
+rootProject.name = "DeskflowAndroid"
+include(":client")
+include(":client-cli")
+include(":fontawesomepro-typeface-library",":app")
  

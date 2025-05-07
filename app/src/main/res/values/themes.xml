@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <style name="Theme.DeskflowKM" parent="Theme.Material3.DynamicColors.DayNight" >
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 
-    <style name="Theme.SynergyKM" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.DeskflowKM.NoActionBar" parent="Theme.DeskflowKM">
+
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <style name="Theme.DeskflowKM.NoWindowTitle" parent="Theme.DeskflowKM">
+        <item name="windowActionBar">true</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <style name="Theme.DeskflowKM.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
+
+    <style name="Theme.DeskflowKM.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
 </resources>
