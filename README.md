@@ -47,8 +47,10 @@ Coming soon
 
 1. Clone the repository:  
    ```bash
-   git clone git@github.com:jglanz/deskflow android.git
+   git clone git@github.com:jglanz/deskflow-android.git
    ```
+2. Open the project in Android Studio.
+3. Build and run the app on your Android device or emulator.
 
 ## Config 
 
