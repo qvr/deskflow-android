@@ -1,6 +1,9 @@
 # Deskflow Android
 
-A **near** fully functional Deskflow client for Android devices.
+A **near** fully functional [Deskflow (deskflow.org)](https://deskflow.org) client for Android devices.
+
+> NOTE: Everything here in, assumes you already use Deskflow on your desktop &
+> know how to configure a client/screen
 
 ## Table of Contents
 
