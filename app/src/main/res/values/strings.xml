@@ -1,4 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ MIT License
+  ~
+  ~ Copyright (c) 2025 Jonathan Glanz
+  ~
+  ~ Permission is hereby granted, free of charge, to any person obtaining a copy
+  ~ of this software and associated documentation files (the "Software"), to deal
+  ~ in the Software without restriction, including without limitation the rights
+  ~ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  ~ copies of the Software, and to permit persons to whom the Software is
+  ~ furnished to do so, subject to the following conditions:
+  ~
+  ~ The above copyright notice and this permission notice shall be included in all
+  ~ copies or substantial portions of the Software.
+  ~
+  ~ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  ~ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  ~ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  ~ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  ~ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  ~ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  ~ SOFTWARE.
+  -->
+
 <resources>
     <string name="ime_name">Deskflow</string>
     <string name="app_name">Deskflow</string>
@@ -50,12 +74,12 @@
     <string name="editor_playground_widget_title">Editor Playground</string>
     <string name="editor_playground_field_label">Editor Playground</string>
     <string name="editor_playground_instructions">This field is made available to test keyboard functionality and capabilities.</string>
-    <string name="editor_playground_field_placeholder">Enter any text you\'d like...</string>
-    <string name="connection_status_widget_header_status_connecting">Connecting...</string>
+    <string name="editor_playground_field_placeholder">Enter any text you\'d like…</string>
+    <string name="connection_status_widget_header_status_connecting">Connecting…</string>
     <string name="connection_status_widget_header_status_connected">Connected</string>
     <string name="connection_status_widget_header_status_stopped">Stopped</string>
     <string name="global_input_service_notification_channel_name">Deskflow</string>
-    <string name="global_input_service_notification_channel_description">Notications related to Deskflow input</string>
+    <string name="global_input_service_notification_channel_description">Notifications related to Deskflow input</string>
     <string name="global_input_service_notification_ime_not_setup">Deskflow Keyboard is not currently active.</string>
     <string name="global_input_service_notification_action_open_keyboard_settings">Open Keyboard Settings</string>
     <string name="toast_settings_saved">Successfully saved settings.</string>

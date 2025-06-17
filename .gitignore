@@ -2,4 +2,9 @@
 .gradle
 .kotlin
 build
+release
+*.apk
+*.aab
+*.aar
+
 local.properties
