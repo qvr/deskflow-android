@@ -19,7 +19,7 @@ on:
 jobs:
   version:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.base_ref == 'master'
     environment: DeskflowAndroid
     steps:
       - name: Checkout code
@@ -32,7 +32,6 @@ jobs:
           java-version: '17'
 
       - name: Update AndroidManifest version, commit, and tag (if manual)
-        if: github.event_name == 'workflow_dispatch'
         run: |
           VERSION_TYPE="${{ github.event.inputs.versionType }}"
           ./scripts/bump-version.sh $VERSION_TYPE
@@ -55,11 +54,9 @@ jobs:
           git config user.email "actions@github.com"
           git add $VERSION_PROPS
           git commit -m "chore: bump version (${VERSION_TYPE}) to ${VERSION} (${VERSION_CODE})"
-          git push origin master
-
           ./gradlew :app:assembleRelease
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
+          
+          git push origin master
           git tag v${VERSION}
           git push origin v${VERSION}
 
