@@ -56,4 +56,20 @@ jobs:
           git push origin master
           git tag v${VERSION}
           git push origin v${VERSION}
+          echo "tag_name=v${VERSION}" >> $GITHUB_ENV
+
+      - name: Create release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release.yml',
+              ref: 'master',
+              inputs: {
+                tagName: '${{ env.tag_name }}'
+              }
+            })
 

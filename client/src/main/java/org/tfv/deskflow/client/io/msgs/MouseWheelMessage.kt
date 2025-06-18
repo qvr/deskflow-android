@@ -31,9 +31,9 @@ class MouseWheelMessage(
     var yDelta: Short = 0
 ) : Message(MESSAGE_TYPE) {
 
-    override fun readData(din: DataInputStream, dataSize: Int) {
-        xDelta = din.readShort()
-        yDelta = din.readShort()
+    override fun readData(inStream: DataInputStream, dataSize: Int) {
+        xDelta = inStream.readShort()
+        yDelta = inStream.readShort()
     }
 
     override fun writeData(outStream: DataOutputStream) {

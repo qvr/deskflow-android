@@ -1,6 +1,20 @@
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      tagName:
+        description: 'Tag to release'
+        required: true
+        type: string
+
+  workflow_call:
+    inputs:
+      tagName:
+        description: 'Tag to release'
+        required: true
+        type: string
+
   push:
     tags:
       - 'v**'
@@ -12,6 +26,21 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get tag from input
+        if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch'
+        run: |
+          echo "tag_name=${{ inputs.tagName }}" >> $GITHUB_ENV
+
+      - name: Get tag from push
+        if: github.event_name == 'push'
+        run: |
+          echo "tag_name=${{ github.ref_name }}" >> $GITHUB_ENV
+
+      - name: Checkout tag
+        run: |
+          git fetch --tags
+          git checkout tags/${{ env.tag_name }}
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -36,7 +65,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.sign_aab.outputs.signedReleaseFile }}
-          tag_name: ${{ github.ref }}
+          tag_name: ${{ env.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

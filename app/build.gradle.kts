@@ -267,8 +267,10 @@ class RenameAABAction : Action<Task> {
         val renameTaskName = "${task.name}RenameAAB"
         val flavor = task.name.substring("bundle".length).lowercase()
         tasks.create<Copy>(renameTaskName) {
-          val bundlePath = "${project.buildDir}/outputs/bundle/${flavor}/"
-          val readyPath = file("${project.buildDir}/outputs/bundle-ready/${flavor}/")
+          val layout = project.layout
+          val buildDir = layout.buildDirectory
+          val bundlePath = "${buildDir}/outputs/bundle/${flavor}/"
+          val readyPath = file("${buildDir}/outputs/bundle-ready/${flavor}/")
           val defaultAppBundleFilename = "app-${flavor}.aab"
           val appBundleFilename = "DeskflowAndroid-v${projectVersionName}.aab"
           from(bundlePath)
