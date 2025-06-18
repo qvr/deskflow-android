@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 
+import com.android.build.gradle.internal.api.BaseVariantOutputImpl
 import com.android.ddmlib.AndroidDebugBridge
 import com.google.protobuf.gradle.id
 import com.google.protobuf.gradle.proto
@@ -46,15 +47,12 @@ protobuf {
     all().forEach { task ->
       task.builtins {
         id("kotlin")
-        id("java") {
-
-        }
+        id("java") {}
       }
     }
   }
 }
-
-
+val (projectVersionName, projectVersionCode) = readVersionProperties(project)
 android {
   namespace = "org.tfv.deskflow"
   buildToolsVersion = "36.0.0"
@@ -64,8 +62,8 @@ android {
     applicationId = "org.tfv.deskflow"
     minSdk = 34
 
-    versionCode = 3
-    versionName = "1.0.3"
+    versionCode = projectVersionCode
+    versionName = projectVersionName
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     vectorDrawables.useSupportLibrary = true
   }
@@ -89,6 +87,18 @@ android {
         "proguard-rules.pro",
       )
       buildConfigField("boolean", "DEBUG", "false")
+    }
+
+    applicationVariants.configureEach {
+      outputs.configureEach outputConfigureEach@ {
+        val output = this@outputConfigureEach
+        if (output is BaseVariantOutputImpl) {
+          val currentFile = output.outputFileName
+          val filename =
+            "DeskflowAndroid_${versionName}-${versionCode}_${name}.${currentFile.substringAfterLast(".", "apk")}"
+          output.outputFileName = filename
+        }
+      }
     }
   }
 

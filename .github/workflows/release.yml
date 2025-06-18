@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      versionType:
+        description: 'Version type (major, minor, patch)'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment: DeskflowAndroid
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Update AndroidManifest version, commit, and tag (if manual)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION_TYPE="${{ github.event.inputs.versionType }}"
+          ./scripts/bump-version.sh $VERSION_TYPE
+          if [ $? -ne 0 ]; then
+              echo "Failed to bump version"
+              exit 1
+          fi
+          VERSION_PROPS="version.properties"
+          MAJOR=$(grep '^major=' $VERSION_PROPS | cut -d'=' -f2)
+          MINOR=$(grep '^minor=' $VERSION_PROPS | cut -d'=' -f2)
+          PATCH=$(grep '^patch=' $VERSION_PROPS | cut -d'=' -f2)
+          if [ -z "$MAJOR" ] || [ -z "$MINOR" ] || [ -z "$PATCH" ]; then
+              echo "Version properties not found or incomplete"
+              exit 1
+          fi
+          VERSION="$MAJOR.$MINOR.$PATCH"
+          VERSION_CODE=$(echo $VERSION | awk -F. '{ printf("%d%02d%02d", $1,$2,$3) }')
+          
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add $VERSION_PROPS
+          git commit -m "chore: bump version (${VERSION_TYPE}) to ${VERSION} (${VERSION_CODE})"
+          git push origin master
+
+          ./gradlew :app:assembleRelease
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git tag v${VERSION}
+          git push origin v${VERSION}
+
+  release:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    environment: DeskflowAndroid
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build release APK/AAB
+        run: ./gradlew clean bundleRelease
+
+      - name: Sign AAB
+        id: sign_aab
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: app/build/outputs/bundle/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.SIGNING_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          keyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.sign_aab.outputs.signedReleaseFile }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to Google Play
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: org.tfv.deskflow
+          releaseFiles: ${{ steps.sign_aab.outputs.signedReleaseFile }}
+          track: alpha
+          status: completed

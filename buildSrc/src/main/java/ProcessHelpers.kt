@@ -24,22 +24,59 @@
 
 import java.io.File
 import java.nio.file.Path
+import java.util.Properties
+import org.gradle.api.Project
 
 fun which(executableName: String): Path {
-  val pathEnv = System.getenv("PATH") ?: throw Error("PATH is not defined")  // 1. Access PATH
-  val pathSeparator = if (System.getProperty("os.name").startsWith("Windows")) ";" else ":" // Determine the separator
+  val pathEnv =
+    System.getenv("PATH")
+      ?: throw Error("PATH is not defined") // 1. Access PATH
+  val pathSeparator =
+    if (System.getProperty("os.name").startsWith("Windows")) ";"
+    else ":" // Determine the separator
   val pathDirs = pathEnv.split(pathSeparator) // 2. Split PATH
 
   for (dir in pathDirs) { // 3. Iterate and Check
     val executableFile = File(dir, executableName)
     if (executableFile.exists() && executableFile.canExecute()) {
-      return executableFile.toPath()  // Found, return the file
+      return executableFile.toPath() // Found, return the file
     }
-    val executableFileWithExtension = File(dir, "$executableName.exe") // check windows extension
-    if (executableFileWithExtension.exists() && executableFileWithExtension.canExecute()) {
+    val executableFileWithExtension =
+      File(dir, "$executableName.exe") // check windows extension
+    if (
+      executableFileWithExtension.exists() &&
+        executableFileWithExtension.canExecute()
+    ) {
       return executableFileWithExtension.toPath()
     }
   }
   throw Error("Executable $executableName not found in $pathDirs")
-  //return null // Not found in any PATH directory
+  // return null // Not found in any PATH directory
+}
+
+fun readVersionProperties(project: Project): Pair<String, Int> {
+  val rootProject = project.rootProject
+  val rootDir = rootProject.rootDir
+
+  val versionFile = File(rootDir, "version.properties")
+  val props = Properties()
+  if (versionFile.exists()) {
+    versionFile.inputStream().use { input -> props.load(input) }
+  } else {
+    throw Error("version.properties file not found in root directory: $rootDir")
+  }
+
+  val versionParts =
+    arrayOf("major", "minor", "patch").map { versionPartKey ->
+      props.getProperty(versionPartKey)
+        ?: throw Error("Missing version property: $versionPartKey")
+    }
+  val versionName = versionParts.joinToString(separator = ".")
+  val (major, minor, patch) = versionParts.map { it.toInt() }
+  val versionCode = String.format("%d%02d%02d", major, minor, patch).toInt(10)
+  project.logger.info(
+    "Resolved (version=$versionName,versionCode=$versionCode)"
+  )
+  
+  return Pair(versionName, versionCode)
 }
