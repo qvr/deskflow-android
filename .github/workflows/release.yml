@@ -19,7 +19,7 @@ on:
 jobs:
   version:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.base_ref == 'master'
+    if: github.event_name == 'workflow_dispatch'
     environment: DeskflowAndroid
     steps:
       - name: Checkout code
