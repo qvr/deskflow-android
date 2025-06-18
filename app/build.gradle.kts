@@ -22,7 +22,6 @@
  * SOFTWARE.
  */
 
-import com.android.build.gradle.internal.api.BaseVariantOutputImpl
 import com.android.ddmlib.AndroidDebugBridge
 import com.google.protobuf.gradle.id
 import com.google.protobuf.gradle.proto
@@ -88,18 +87,32 @@ android {
       )
       buildConfigField("boolean", "DEBUG", "false")
     }
-
-    applicationVariants.configureEach {
-      outputs.configureEach outputConfigureEach@ {
-        val output = this@outputConfigureEach
-        if (output is BaseVariantOutputImpl) {
-          val currentFile = output.outputFileName
-          val filename =
-            "DeskflowAndroid_${versionName}-${versionCode}_${name}.${currentFile.substringAfterLast(".", "apk")}"
-          output.outputFileName = filename
-        }
-      }
-    }
+    
+    // applicationVariants.all {
+    //   outputs.all {
+    //     if (this is com.android.build.gradle.api.ApkVariant) {
+    //       val aabOutputFile =
+    //         File(
+    //           outputDirectory,
+    //           "${name}_${versionName}_${versionCode}_${buildType.name}.aab"
+    //         )
+    //       // Check if the task already exists to avoid errors during re-syncs
+    //       if (tasks.findByName("rename${name.capitalize()}Aab") == null) {
+    //         val renameAabTask = tasks.register("rename${name.capitalize()}Aab") {
+    //           doLast {
+    //             val sourceFile = outputFile
+    //             if (sourceFile.exists()) {
+    //               sourceFile.copyTo(aabOutputFile, overwrite = true)
+    //             } else {
+    //               println("AAB file not found: ${sourceFile.absolutePath}")
+    //             }
+    //           }
+    //         }
+    //         dependsOn(renameAabTask)
+    //       }
+    //     }
+    //   }
+    // }
   }
 
   compileOptions {
@@ -246,3 +259,29 @@ tasks.register("installDebugEnableAccessibilityService") {
     runCatching { AndroidDebugBridge.terminate() }
   }
 }
+
+class RenameAABAction : Action<Task> {
+  override fun execute(task: Task) {
+    
+      if (task.name.startsWith("bundle") && !task.name.contains("RenameAAB")) {
+        val renameTaskName = "${task.name}RenameAAB"
+        val flavor = task.name.substring("bundle".length).lowercase()
+        tasks.create<Copy>(renameTaskName) {
+          val bundlePath = "${project.buildDir}/outputs/bundle/${flavor}/"
+          val readyPath = file("${project.buildDir}/outputs/bundle-ready/${flavor}/")
+          val defaultAppBundleFilename = "app-${flavor}.aab"
+          val appBundleFilename = "DeskflowAndroid-v${projectVersionName}.aab"
+          from(bundlePath)
+          include(defaultAppBundleFilename)
+          destinationDir = readyPath
+          rename(defaultAppBundleFilename, appBundleFilename)
+        }
+        
+        task.finalizedBy(renameTaskName)
+    
+    }
+  }
+  
+}
+
+tasks.whenTaskAdded(RenameAABAction())
