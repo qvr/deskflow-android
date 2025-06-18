@@ -266,9 +266,9 @@ class RenameAABAction : Action<Task> {
       if (task.name.startsWith("bundle") && !task.name.contains("RenameAAB")) {
         val renameTaskName = "${task.name}RenameAAB"
         val flavor = task.name.substring("bundle".length).lowercase()
+        val layout = project.layout
+        val buildDir = layout.buildDirectory.asFile.get().absolutePath
         tasks.create<Copy>(renameTaskName) {
-          val layout = project.layout
-          val buildDir = layout.buildDirectory
           val bundlePath = "${buildDir}/outputs/bundle/${flavor}/"
           val readyPath = file("${buildDir}/outputs/bundle-ready/${flavor}/")
           val defaultAppBundleFilename = "app-${flavor}.aab"
