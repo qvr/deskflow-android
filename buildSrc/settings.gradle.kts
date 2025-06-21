@@ -29,7 +29,6 @@ pluginManagement {
     mavenCentral()
     gradlePluginPortal()
     maven { url = uri("https://plugins.gradle.org/m2") }
-    maven { url = uri("https://maven.pkg.github.com/3fv/kdux") }
   }
 
 }

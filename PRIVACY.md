@@ -12,7 +12,7 @@ We do **not collect**, store, or share any personal data, usage data, or device 
 
 This application is open source, and its complete source code is publicly available at:
 
-[https://github.com/3fv/deskflow-android](https://github.com/3fv/deskflow-android)
+[https://github.com/jglanz/deskflow-android](https://github.com/jglanz/deskflow-android)
 
 You are free to inspect, audit, and modify the source code to verify our privacy claims.
 
