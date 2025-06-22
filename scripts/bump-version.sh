@@ -49,11 +49,13 @@ else
   PATCH=$((PATCH + 1))
 fi
 VERSION="$MAJOR.$MINOR.$PATCH"
+VERSION_CODE=$(echo $VERSION | awk -F. '{ printf("%d%02d%02d", $1,$2,$3) }')
 echo "major=$MAJOR" > $VERSION_PROPS
 echo "minor=$MINOR" >> $VERSION_PROPS
 echo "patch=$PATCH" >> $VERSION_PROPS
+echo "versionName=$VERSION" >> $VERSION_PROPS
+echo "versionCode=$VERSION_CODE" >> $VERSION_PROPS
 
-#VERSION_CODE=$(echo $VERSION | awk -F. '{ printf("%d%02d%02d", $1,$2,$3) }')
 #sed -i.bak -E "s/versionName.*=.*$/versionName = \"$VERSION\"/" $BUILD_FILE
 #rm $BUILD_FILE.bak
 #sed -i.bak -E "s/versionCode.*=.*$/versionCode = $VERSION_CODE/" $BUILD_FILE
