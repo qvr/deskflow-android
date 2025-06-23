@@ -292,9 +292,8 @@ class RenameAABAction : Action<Task> {
       val defaultAppBundleFilename = "app-${flavor}${if (isAssemble) "-unsigned" else ""}.$ext"
       val appBundleFilename = "DeskflowAndroid-v$projectVersionName.$ext"
       readyPath.mkdirs()
-      println("Creating task: $renameTaskName")
+      
       tasks.register<Copy>(renameTaskName) {
-        println("Running task: $renameTaskName")
         from(bundlePath)
         include(defaultAppBundleFilename)
         destinationDir = readyPath
