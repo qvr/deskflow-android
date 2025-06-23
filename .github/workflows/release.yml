@@ -60,6 +60,8 @@ jobs:
           alias: ${{ secrets.SIGNING_KEY_ALIAS }}
           keyStorePassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
           keyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
 
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -99,6 +101,9 @@ jobs:
         run: |
           git fetch --tags
           git checkout tags/${{ env.tag_name }}
+          
+          echo "Available build tools:"
+          ls /usr/local/lib/android/sdk/build-tools/
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -118,6 +123,8 @@ jobs:
           alias: ${{ secrets.SIGNING_KEY_ALIAS }}
           keyStorePassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
           keyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
 
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
