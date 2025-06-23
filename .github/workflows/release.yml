@@ -49,7 +49,10 @@ jobs:
           java-version: '17'
 
       - name: Build release APK/AAB
-        run: ./gradlew clean bundleRelease
+        run: |
+          ./gradlew clean 
+          ./gradlew bundleRelease
+          ./gradlew assembleRelease
 
       - name: Sign AAB
         id: sign_aab
@@ -61,10 +64,22 @@ jobs:
           keyStorePassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
           keyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
 
+      - name: Sign APK
+        id: sign_apk
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: app/build/outputs/apks-ready/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.SIGNING_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          keyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.sign_aab.outputs.signedReleaseFile }}
+          files: |
+            ${{ steps.sign_aab.outputs.signedReleaseFile }}
+            ${{ steps.sign_apk.outputs.signedReleaseFile }}
           tag_name: ${{ env.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
