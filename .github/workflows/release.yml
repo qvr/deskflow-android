@@ -20,7 +20,7 @@ on:
       - 'v**'
 
 jobs:
-  release:
+  release-bundle:
     runs-on: ubuntu-latest
     environment: DeskflowAndroid
     steps:
@@ -48,11 +48,8 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build release APK/AAB
-        run: |
-          ./gradlew clean 
-          ./gradlew bundleRelease
-          ./gradlew assembleRelease
+      - name: Build release AAB
+        run: ./gradlew clean bundleRelease
 
       - name: Sign AAB
         id: sign_aab
@@ -64,22 +61,10 @@ jobs:
           keyStorePassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
           keyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
 
-      - name: Sign APK
-        id: sign_apk
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: app/build/outputs/apk-ready/release
-          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-          alias: ${{ secrets.SIGNING_KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          keyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
-
-      - name: Create GitHub Release
+      - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ steps.sign_aab.outputs.signedReleaseFile }}
-            ${{ steps.sign_apk.outputs.signedReleaseFile }}
+          files: ${{ steps.sign_aab.outputs.signedReleaseFile }}
           tag_name: ${{ env.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,3 +77,52 @@ jobs:
 #          releaseFiles: ${{ steps.sign_aab.outputs.signedReleaseFile }}
 #          track: alpha
 #          status: completed
+
+  release-apk:
+    runs-on: ubuntu-latest
+    environment: DeskflowAndroid
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get tag from input
+        if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch'
+        run: |
+          echo "tag_name=${{ inputs.tagName }}" >> $GITHUB_ENV
+
+      - name: Get tag from push
+        if: github.event_name == 'push'
+        run: |
+          echo "tag_name=${{ github.ref_name }}" >> $GITHUB_ENV
+
+      - name: Checkout tag
+        run: |
+          git fetch --tags
+          git checkout tags/${{ env.tag_name }}
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build release APK
+        run: ./gradlew clean assembleRelease
+
+      - name: Sign APK
+        id: sign_apk
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: app/build/outputs/apk-ready/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.SIGNING_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          keyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.sign_apk.outputs.signedReleaseFile }}
+          tag_name: ${{ env.tag_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
