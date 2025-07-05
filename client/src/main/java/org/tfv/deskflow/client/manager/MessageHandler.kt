@@ -259,8 +259,9 @@ class MessageHandler(
       }
 
       is BusyMessage -> {
-        log.warn { "BUSY MESSAGE RECEIVED, RESETTING CONNECTION" }
-        socket.dispose()
+          log.warn { "BUSY MESSAGE RECEIVED, RESET CONNECTION??" }
+      //log.warn { "BUSY MESSAGE RECEIVED, RESETTING CONNECTION" }
+        //socket.dispose()
       }
 
       is UnknownMessage -> {

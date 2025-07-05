@@ -46,8 +46,8 @@ import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT
@@ -310,6 +310,7 @@ class GlobalInputService : AccessibilityService() {
     }
   }
 
+  @SuppressLint("RtlHardcoded")
   override fun onCreate() {
     super.onCreate()
     log.debug { "onCreate:${GlobalInputService::class.simpleName}" }
@@ -354,8 +355,7 @@ class GlobalInputService : AccessibilityService() {
                   )
 
                 for (format in knownFormats) {
-                  val variant = data.variants[format]
-                  if (variant == null) continue
+                  val variant = data.variants[format] ?: continue
 
                   // TODO: Implement `Converter` concept
                   val clipData =
@@ -402,7 +402,9 @@ class GlobalInputService : AccessibilityService() {
         PixelFormat.TRANSLUCENT,
       )
 
-    mousePointerLayout.gravity = Gravity.TOP or Gravity.START
+    mousePointerLayout.layoutInDisplayCutoutMode =
+      LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+    mousePointerLayout.gravity = Gravity.TOP or Gravity.LEFT
     mousePointerLayout.x = 200
     mousePointerLayout.y = 200
 
@@ -441,8 +443,7 @@ class GlobalInputService : AccessibilityService() {
    */
   @Suppress("unused")
   private fun clickClosestNodeToPointer() {
-    val nodeInfo = rootInActiveWindow
-    if (nodeInfo == null) return
+    val nodeInfo = rootInActiveWindow ?: return
     val nearestNodeToMouse: AccessibilityNodeInfo? =
       findSmallestNodeAtPoint(
         nodeInfo,
@@ -462,34 +463,18 @@ class GlobalInputService : AccessibilityService() {
    * > service.
    */
   private fun clickGesture(
-    x: Int = mousePointerLayout.x,
-    y: Int = mousePointerLayout.y,
+    x: Float = mousePointerLayout.x.toFloat(),
+    y: Float = mousePointerLayout.y.toFloat(),
   ) {
-    if (globalInputPending) return
-    globalInputPending = true
 
-    val tap =
-      StrokeDescription(
-        Path().apply { moveTo(x.toFloat(), y.toFloat()) },
-        0L,
-        ViewConfiguration.getTapTimeout().toLong(),
-      )
-    val builder = GestureDescription.Builder()
-    builder.addStroke(tap)
-    dispatchGesture(builder.build(), gestureResultCallback, globalInputHandler)
-    // val path = Path().apply {
-    //   moveTo(x.toFloat(), y.toFloat())
-    // }
-    // val gesture = GestureDescription.Builder()
-    //   .addStroke(
-    //     GestureDescription.StrokeDescription(
-    //       path,
-    //       0,
-    //       100
-    //     )
-    //   )
-    //   .build()
-    // dispatchGesture(gesture, gestureResultCallback, globalInputHandler)
+    log.debug { "Click gesture at [$x, $y]" }
+
+    val path = Path().apply { moveTo(x, y) }
+    val gesture =
+      GestureDescription.Builder()
+        .addStroke(StrokeDescription(path, 0, 100))
+        .build()
+    dispatchGesture(gesture, gestureResultCallback, globalInputHandler)
   }
 
   /**
@@ -506,7 +491,7 @@ class GlobalInputService : AccessibilityService() {
     }
     mousePointerLayout.x = x
     mousePointerLayout.y = y
-    log.debug { "Move [${mousePointerLayout.x}, ${mousePointerLayout.y}]" }
+
     windowManager.updateViewLayout(mousePointerView, mousePointerLayout)
   }
 
@@ -579,53 +564,54 @@ class GlobalInputService : AccessibilityService() {
     get() =
       imeManager.enabledInputMethodList.any { it.id == deskflowImeInfo?.id }
 
-  private val onClipboardChanged = object : ClipboardManager.OnPrimaryClipChangedListener {
-    override fun onPrimaryClipChanged() {
-      catch({
-        val clip = clipboard.primaryClip
+  private val onClipboardChanged =
+    object : ClipboardManager.OnPrimaryClipChangedListener {
+      override fun onPrimaryClipChanged() {
+        catch({
+          val clip = clipboard.primaryClip
 
-        log.info { "onPrimaryClipChanged(clip=$clip)" }
-        if (clip == null) return@catch
-        val clipDesc = clip.description
-        val itemIdx =
-          0.rangeUntil(clipDesc.mimeTypeCount).find { idx ->
-            listOf(
-              ClipDescription.MIMETYPE_TEXT_PLAIN,
-              ClipDescription.MIMETYPE_TEXT_HTML,
-            )
-              .contains(clipDesc.getMimeType(idx))
+          log.debug { "onPrimaryClipChanged(clip=$clip)" }
+          if (clip == null) return@catch
+          val clipDesc = clip.description
+          val itemIdx =
+            0.rangeUntil(clipDesc.mimeTypeCount).find { idx ->
+              listOf(
+                  ClipDescription.MIMETYPE_TEXT_PLAIN,
+                  ClipDescription.MIMETYPE_TEXT_HTML,
+                )
+                .contains(clipDesc.getMimeType(idx))
+            }
+
+          if (itemIdx == null) {
+            log.warn { "No compatible mimetypes in primary clip" }
+            return@catch
           }
-
-        if (itemIdx == null) {
-          log.warn { "No compatible mimetypes in primary clip" }
-          return@catch
-        }
-        val item = clip.getItemAt(itemIdx)
-        val text = item.coerceToText(this@GlobalInputService).toString()
-        if (text.isBlank()) {
-          log.warn { "ignoring empty clipdata \"${text}\"" }
-          return@catch
-        }
-        val clipboardData =
-          ClipboardData(
-            0,
-            0,
-            mapOf(
-              ClipboardData.Format.Text to
-                      ClipboardData.Variant(
-                        ClipboardData.Format.Text,
-                        text.toByteArray(),
-                      )
-            ),
+          val item = clip.getItemAt(itemIdx)
+          val text = item.coerceToText(this@GlobalInputService).toString()
+          if (text.isBlank()) {
+            log.warn { "ignoring empty clipdata \"${text}\"" }
+            return@catch
+          }
+          val clipboardData =
+            ClipboardData(
+              0,
+              0,
+              mapOf(
+                ClipboardData.Format.Text to
+                  ClipboardData.Variant(
+                    ClipboardData.Format.Text,
+                    text.toByteArray(),
+                  )
+              ),
+            )
+          serviceClient.setClipboardData(
+            Bundle().apply { putSerializable("clipboardData", clipboardData) }
           )
-        serviceClient.setClipboardData(
-          Bundle().apply { putSerializable("clipboardData", clipboardData) }
-        )
-      }) { err: Throwable ->
-        log.error(err) { "unable to update clipboard" }
+        }) { err: Throwable ->
+          log.error(err) { "unable to update clipboard" }
+        }
       }
     }
-  }
 
   /**
    * Called when the service is connected to the system. This is where we set up
