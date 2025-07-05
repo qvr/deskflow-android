@@ -23,10 +23,12 @@
  */
 
 @file:OptIn(ExperimentalAtomicApi::class)
+@file:Suppress("unused")
 
 package org.tfv.deskflow.ext
 
 import android.accessibilityservice.AccessibilityService
+import android.annotation.SuppressLint
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -39,6 +41,7 @@ import android.text.TextUtils
 import android.view.inputmethod.InputMethodInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.core.net.toUri
+import arrow.core.raise.catch
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.reflect.KClass
@@ -72,20 +75,25 @@ fun Context.requestOverlayPermission() {
 fun Context.isAccessibilityServiceEnabled(
   serviceClass: Class<out AccessibilityService>
 ): Boolean {
-  val expectedComponentName = ComponentName(this, serviceClass)
-  val enabledServicesSetting =
-    Settings.Secure.getString(
-      contentResolver,
-      Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-    ) ?: return false
+  try {
+    val expectedComponentName = ComponentName(this, serviceClass)
+    val enabledServicesSetting =
+      Settings.Secure.getString(
+        contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+      ) ?: return false
 
-  val colonSplitter = TextUtils.SimpleStringSplitter(':')
-  colonSplitter.setString(enabledServicesSetting)
-  while (colonSplitter.hasNext()) {
-    val componentName = ComponentName.unflattenFromString(colonSplitter.next())
-    if (componentName != null && componentName == expectedComponentName) {
-      return true
+    val colonSplitter = TextUtils.SimpleStringSplitter(':')
+    colonSplitter.setString(enabledServicesSetting)
+    while (colonSplitter.hasNext()) {
+      val componentName =
+        ComponentName.unflattenFromString(colonSplitter.next())
+      if (componentName != null && componentName == expectedComponentName) {
+        return true
+      }
     }
+  } catch (err: Exception) {
+    log.warn(err) { "Failed to check if accessibility service is enabled" }
   }
   return false
 }
@@ -197,15 +205,23 @@ fun Context.launchInputMethodServiceSettings() {
   startActivity(intent)
 }
 
+@SuppressLint("ObsoleteSdkInt")
 fun Context.enabledInputMethodServicesFromSettings(): List<String> {
-  val enabledList =
-    Settings.Secure.getString(
-      contentResolver,
-      Settings.Secure.ENABLED_INPUT_METHODS,
-    ) ?: return emptyList()
+  if (android.os.Build.VERSION.SDK_INT > 33) return emptyList()
+  try {
 
-  // the list is colon-separated
-  return enabledList.split(':')
+    val enabledList =
+      Settings.Secure.getString(
+        contentResolver,
+        Settings.Secure.ENABLED_INPUT_METHODS,
+      ) ?: return emptyList()
+
+    // the list is colon-separated
+    return enabledList.split(':')
+  } catch (err: Exception) {
+    log.warn(err) { "Failed to get enabled IME list" }
+    return emptyList()
+  }
 }
 
 /**
@@ -215,7 +231,10 @@ fun Context.enabledInputMethodServicesFromSettings(): List<String> {
 fun Context.isInputMethodServiceEnabledFromSettings(
   imeId: String = DESKFLOW_IME_ID
 ): Boolean {
-  return enabledInputMethodServicesFromSettings().any { it.trim() == imeId }
+  val enabledIMESettings = enabledInputMethodServicesFromSettings()
+  if (!enabledIMESettings.isEmpty())
+    return enabledIMESettings.any { it.trim() == imeId }
+  return false
 }
 
 fun Context.allInputMethodServices(): List<InputMethodInfo> {
@@ -234,6 +253,11 @@ fun Context.enabledInputMethodServices(): List<InputMethodInfo> {
 fun Context.isInputMethodServiceEnabled(
   imePackage: String = DESKFLOW_PACKAGE
 ): Boolean {
-  return enabledInputMethodServices().any { it.packageName == imePackage } ||
-    isInputMethodServiceEnabledFromSettings()
+  return catch({
+    enabledInputMethodServices().any { it.packageName == imePackage } ||
+      isInputMethodServiceEnabledFromSettings()
+  }) { err: Exception ->
+    log.warn(err) { "Failed to check if IME is enabled" }
+    false
+  }
 }
