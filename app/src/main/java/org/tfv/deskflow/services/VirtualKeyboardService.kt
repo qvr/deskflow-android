@@ -166,8 +166,9 @@ class VirtualKeyboardService : InputMethodService() {
 
   internal fun saveEditHistory(
     info: EditorInfo?,
-    extractedText: ExtractedText,
+    extractedText: ExtractedText?,
   ) {
+    if (extractedText == null) return
     getEditHistory(info)?.save(extractedText.text.toString(), maxSize = 25)
   }
 
@@ -358,6 +359,7 @@ class VirtualKeyboardService : InputMethodService() {
   }
 
   override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+    super.onStartInputView(info, restarting)
     keyboardViewLifecycleOwner.onResume()
   }
 
@@ -413,14 +415,14 @@ class VirtualKeyboardService : InputMethodService() {
     return view
   }
 
-  fun currentExtractedTest(): ExtractedText {
+  fun currentExtractedTest(): ExtractedText? {
     return currentInputConnection.getExtractedText(ExtractedTextRequest(), 0)
   }
 
   private fun applyCommand(
     command: String?,
     ic: InputConnection = currentInputConnection,
-    extractedText: ExtractedText =
+    extractedText: ExtractedText? =
       ic.getExtractedText(ExtractedTextRequest(), 0),
   ) {
     command?.let {
@@ -495,6 +497,8 @@ class VirtualKeyboardService : InputMethodService() {
 
     // 5. If all the previous checks passed, grab the current `ExtractedText` of
     // the `InputConnection`.
+    // Note: Some apps (like terminal emulators) return null for getExtractedText,
+    // but commitText still works for basic input.
     val et = ic.getExtractedText(ExtractedTextRequest(), 0)
     val mods = event.getModifiers()
     val editHistory = getEditHistory()
