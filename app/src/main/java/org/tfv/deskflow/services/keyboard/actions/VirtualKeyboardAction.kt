@@ -39,7 +39,7 @@ import org.tfv.deskflow.services.keyboard.KeyboardEditHistory
 typealias VirtualKeyboardActionCallable =
   (
     ic: InputConnection,
-    et: ExtractedText,
+    et: ExtractedText?,
     specialKey: Keyboard.SpecialKey?,
     mods: KeyModifierMask,
     KeyboardEvent,
@@ -51,12 +51,18 @@ private val log = KLoggingManager.logger("VirtualKeyboardAction")
 
 val editActionSelectAll: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
-    ic.setSelection(0, et.text.length)
+    if (et != null) {
+      ic.setSelection(0, et.text.length)
+    } else {
+      log.warn { "ExtractedText is null, cannot select all" }
+    }
   }
 
 val editActionCopy: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
-    if (et.selectionStart != et.selectionEnd) {
+    if (et == null) {
+      log.warn { "ExtractedText is null, cannot copy" }
+    } else if (et.selectionStart != et.selectionEnd) {
       val selectedText = et.text.subSequence(et.selectionStart, et.selectionEnd)
       log.debug { "Copying selected text: $selectedText" }
       service.setClipboardText(selectedText)
@@ -67,7 +73,9 @@ val editActionCopy: VirtualKeyboardActionCallable =
 
 val editActionCut: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
-    if (et.selectionStart != et.selectionEnd) {
+    if (et == null) {
+      log.warn { "ExtractedText is null, cannot cut" }
+    } else if (et.selectionStart != et.selectionEnd) {
       val selectedText = et.text.subSequence(et.selectionStart, et.selectionEnd)
       log.debug { "Cutting selected text: $selectedText" }
       service.setClipboardText(selectedText)
@@ -98,7 +106,9 @@ val editActionPaste: VirtualKeyboardActionCallable =
 
 val editActionLeft: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
-    if (mods.isShift) {
+    if (et == null) {
+      log.warn { "ExtractedText is null, cannot handle left arrow" }
+    } else if (mods.isShift) {
       log.debug { "Extend selection left" }
       val selStart =
         when {
@@ -118,7 +128,9 @@ val editActionLeft: VirtualKeyboardActionCallable =
 
 val editActionRight: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
-    if (mods.isShift) {
+    if (et == null) {
+      log.warn { "ExtractedText is null, cannot handle right arrow" }
+    } else if (mods.isShift) {
       log.debug { "Extend selection right" }
       val text = et.text
       val selStart = et.selectionStart
@@ -158,27 +170,35 @@ val editActionDelete: VirtualKeyboardActionCallable =
 
 val editActionUndo: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
-    val undoValue = editHistory?.undo() // et.text.toString()
-    log.debug { "Undo value=$undoValue" }
-    if (undoValue != null) {
-      ic.beginBatchEdit()
-      ic.setSelection(0, et.text.length)
-      ic.deleteSurroundingText(et.text.length, 0)
-      ic.commitText(undoValue, undoValue.length)
-      ic.endBatchEdit()
+    if (et == null) {
+      log.warn { "ExtractedText is null, cannot undo" }
+    } else {
+      val undoValue = editHistory?.undo() // et.text.toString()
+      log.debug { "Undo value=$undoValue" }
+      if (undoValue != null) {
+        ic.beginBatchEdit()
+        ic.setSelection(0, et.text.length)
+        ic.deleteSurroundingText(et.text.length, 0)
+        ic.commitText(undoValue, undoValue.length)
+        ic.endBatchEdit()
+      }
     }
   }
 
 val editActionRedo: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
-    val redoValue = editHistory?.redo()
-    log.debug { "Redo value=$redoValue" }
-    if (redoValue != null) {
-      ic.beginBatchEdit()
-      ic.setSelection(0, et.text.length)
-      ic.deleteSurroundingText(et.text.length, 0)
-      ic.commitText(redoValue, redoValue.length)
-      ic.endBatchEdit()
+    if (et == null) {
+      log.warn { "ExtractedText is null, cannot redo" }
+    } else {
+      val redoValue = editHistory?.redo()
+      log.debug { "Redo value=$redoValue" }
+      if (redoValue != null) {
+        ic.beginBatchEdit()
+        ic.setSelection(0, et.text.length)
+        ic.deleteSurroundingText(et.text.length, 0)
+        ic.commitText(redoValue, redoValue.length)
+        ic.endBatchEdit()
+      }
     }
   }
 
