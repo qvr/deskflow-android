@@ -61,6 +61,7 @@ import arrow.core.raise.catch
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.tfv.deskflow.R
@@ -572,9 +573,14 @@ class GlobalInputService : AccessibilityService() {
       }
 
       MouseEvent.Type.Wheel -> {
-        if (abs(event.y) < 240) return
-        log.debug { "Wheel [${event.x}, ${event.y}]" }
-        swipe(up = event.y > 0)
+        // Single mouse wheel "click" seems to be 120 for me
+        if (abs(event.y) < 30) return
+
+        val scrollUp = event.y > 0
+        log.debug { "Wheel [x=${event.x}, y=${event.y}, scrollUp=$scrollUp]" }
+
+        // Use swipe gesture at pointer location for consistent scrolling
+        scrollSwipe(up = scrollUp)
       }
     }
   }
@@ -594,6 +600,77 @@ class GlobalInputService : AccessibilityService() {
         log.warn { "Overlay permissions not granted yet" }
       }
     }
+  }
+
+  /**
+   * Perform a scroll swipe gesture at the mouse pointer location.
+   * This creates a small vertical swipe to simulate scrolling.
+   *
+   * @param up true to scroll up (swipe down gesture), false to scroll down (swipe up gesture)
+   */
+  private fun scrollSwipe(up: Boolean = false) {
+    if (globalInputPending) {
+      log.debug { "Scroll ignored - gesture already pending" }
+      return
+    }
+
+    globalInputPending = true
+
+    val screenSize = getScreenSize()
+    val screenHeight = screenSize.px.height.toFloat()
+
+    // Use pointer position as center of swipe
+    val swipeX = mousePointerLayout.x.toFloat()
+    val currentY = mousePointerLayout.y.toFloat()
+
+    // Calculate scroll distance - use 20% of screen height for balanced scrolling
+    val scrollDistance = screenHeight * 0.20f
+
+    val (startY, endY) = when {
+      // On home screen, wheel UP should pull up app drawer from bottom
+      // TODO: homescreen special handling disabled for now, maybe make configurable later
+      false && up && isHomeScreenActive -> {
+        Pair(
+          max(screenHeight * 0.6f - scrollDistance * 2, 0f),  // endY becomes start (top position)
+          screenHeight * 0.6f  // startY becomes end (bottom position)
+        )
+      }
+      // Normal scroll up in apps
+      up -> {
+        Pair(currentY + scrollDistance / 2, currentY - scrollDistance / 2)
+      }
+      // On home screen, wheel DOWN should pull down notification shade from top
+      // TODO: homescreen special handling disabled for now, maybe make configurable later
+      false && !up && isHomeScreenActive -> {
+        Pair(
+          min(screenHeight * 0.3f + scrollDistance * 2, screenHeight),  // endY becomes start (bottom position)
+          screenHeight * 0.3f  // startY becomes end (top position)
+        )
+      }
+      // Normal scroll down in apps
+      else -> {
+        Pair(currentY - scrollDistance / 2, currentY + scrollDistance / 2)
+      }
+    }
+
+    // Ensure swipe stays within screen bounds
+    val clampedStartY = startY.coerceIn(0f, screenHeight)
+    val clampedEndY = endY.coerceIn(0f, screenHeight)
+
+    val path = Path().apply {
+      moveTo(swipeX, clampedEndY)
+      lineTo(swipeX, clampedStartY)
+    }
+
+    // Swipe for 150ms for more responsive scrolling
+    val stroke = StrokeDescription(path, 0, 150)
+    val gesture = GestureDescription.Builder().addStroke(stroke).build()
+
+    log.info {
+      "Scroll swipe: up=$up, homeScreen=$isHomeScreenActive, x=$swipeX, startY=$clampedStartY, endY=$clampedEndY, distance=${abs(clampedEndY - clampedStartY)}"
+    }
+
+    dispatchGesture(gesture, gestureResultCallback, globalInputHandler)
   }
 
   /**
@@ -752,61 +829,6 @@ class GlobalInputService : AccessibilityService() {
 
   override fun onInterrupt() {
     // Required override.
-  }
-
-  /**
-   * Perform a swipe gesture. If [up] is true, it swipes up, otherwise it swipes
-   * down. The swipe starts from the middle of the screen and goes to the top or
-   * bottom.
-   * > Example: Used for scrolling in lists or returning to the home screen.
-   */
-  private fun swipe(up: Boolean = false) {
-    if (globalInputPending) return
-
-    globalInputPending = true
-
-    val screenSize = getScreenSize()
-
-    val (width, height) =
-      Pair(screenSize.px.width.toFloat(), screenSize.px.height.toFloat())
-    val middleX = width / 2f
-
-    val (startY, endY) =
-      when {
-        up && isHomeScreenActive -> {
-          Pair(
-            mousePointerLayout.y.toFloat(),
-            max(mousePointerLayout.y.toFloat() - (height * 0.42f), 0f),
-          )
-        }
-
-        up -> {
-          Pair(height - 5f, height * 0.42f)
-        }
-
-        else -> {
-          Pair(
-            mousePointerLayout.y.toFloat(),
-            mousePointerLayout.y.toFloat() + (height * 0.5f),
-          )
-        }
-      }
-
-    val path =
-      Path().apply {
-        moveTo(middleX, startY)
-        lineTo(middleX, endY)
-      }
-
-    val stroke = StrokeDescription(path, 0, 500)
-
-    val gesture = GestureDescription.Builder().addStroke(stroke).build()
-
-    log.debug {
-      "Swipe up=$up,startY=$startY,endY=$endY,screenSize=$screenSize,path=$path"
-    }
-
-    dispatchGesture(gesture, gestureResultCallback, globalInputHandler)
   }
 
   /**
