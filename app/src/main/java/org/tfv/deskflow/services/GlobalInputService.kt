@@ -419,12 +419,36 @@ class GlobalInputService : AccessibilityService() {
 
   /**
    * Monitor connection state and reset IME-related state when disconnected.
+   * Also manages mouse pointer visibility based on screen active state.
    */
   private fun monitorConnectionState() {
     serviceScope.launch {
       serviceClient.stateFlow.collect { state ->
         log.debug {
-          "Connection state changed in GlobalInputService: isConnected=${state.isConnected}, isEnabled=${state.isEnabled}"
+          "Connection state changed in GlobalInputService: isConnected=${state.isConnected}, isEnabled=${state.isEnabled}, isActive=${state.screen.isActive}"
+        }
+
+        // Show/hide mouse pointer based on connection state AND screen active state
+        // The pointer should only be visible when:
+        // 1. Connected to server (isConnected)
+        // 2. Service is enabled (isEnabled)
+        // 3. Cursor is on THIS client's screen (screen.isActive)
+        val shouldShowPointer = state.isConnected && state.isEnabled && state.screen.isActive
+
+        if (shouldShowPointer) {
+          log.info { "Cursor entered this client, showing mouse pointer" }
+          withContext(Dispatchers.Main) {
+            showMousePointer()
+          }
+        } else {
+          if (state.isConnected && state.isEnabled && !state.screen.isActive) {
+            log.info { "Cursor left this client, hiding mouse pointer" }
+          } else {
+            log.info { "Connection inactive, hiding mouse pointer" }
+          }
+          withContext(Dispatchers.Main) {
+            hideMousePointer()
+          }
         }
 
         // When disconnected or disabled, reset IME tracking state
@@ -456,7 +480,7 @@ class GlobalInputService : AccessibilityService() {
   override fun onDestroy() {
     serviceScope.cancel()
     serviceClient.unbind()
-    windowManager.removeView(mousePointerView)
+    hideMousePointer()  // Use the safe hide method instead of direct removeView
     super.onDestroy()
   }
 
@@ -562,12 +586,56 @@ class GlobalInputService : AccessibilityService() {
         if (!mousePointerVisible) {
           windowManager.addView(mousePointerView, mousePointerLayout)
           mousePointerVisible = true
+          log.debug { "Mouse pointer shown" }
         }
       }
 
       false -> {
         log.warn { "Overlay permissions not granted yet" }
       }
+    }
+  }
+
+  /**
+   * Show the mouse pointer overlay.
+   * Safe to call multiple times - will only add view if not already visible.
+   */
+  private fun showMousePointer() {
+    if (mousePointerVisible) {
+      log.debug { "Mouse pointer already visible, skipping" }
+      return
+    }
+
+    if (!canDrawOverlays()) {
+      log.warn { "Cannot show mouse pointer - overlay permission not granted" }
+      return
+    }
+
+    try {
+      windowManager.addView(mousePointerView, mousePointerLayout)
+      mousePointerVisible = true
+      log.info { "Mouse pointer shown" }
+    } catch (err: Exception) {
+      log.error(err) { "Error showing mouse pointer" }
+    }
+  }
+
+  /**
+   * Hide the mouse pointer overlay.
+   * Safe to call multiple times - will only remove view if currently visible.
+   */
+  private fun hideMousePointer() {
+    if (!mousePointerVisible) {
+      log.debug { "Mouse pointer already hidden, skipping" }
+      return
+    }
+
+    try {
+      windowManager.removeView(mousePointerView)
+      mousePointerVisible = false
+      log.info { "Mouse pointer hidden" }
+    } catch (err: Exception) {
+      log.error(err) { "Error hiding mouse pointer" }
     }
   }
 
