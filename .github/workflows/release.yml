@@ -15,10 +15,6 @@ on:
         required: true
         type: string
 
-  push:
-    tags:
-      - 'v**'
-
 jobs:
   release-bundle:
     runs-on: ubuntu-latest
@@ -101,7 +97,7 @@ jobs:
         run: |
           git fetch --tags
           git checkout tags/${{ env.tag_name }}
-          
+
           echo "Available build tools:"
           ls /usr/local/lib/android/sdk/build-tools/
 
