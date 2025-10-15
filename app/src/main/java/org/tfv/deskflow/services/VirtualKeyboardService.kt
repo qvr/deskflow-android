@@ -25,6 +25,7 @@
 package org.tfv.deskflow.services
 
 import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.inputmethodservice.InputMethodService
@@ -34,6 +35,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.MutableWindowInsets
@@ -61,6 +63,13 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import arrow.core.raise.catch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.tfv.deskflow.Application
 import org.tfv.deskflow.R
 import org.tfv.deskflow.client.events.KeyboardEvent
@@ -169,6 +178,10 @@ class VirtualKeyboardService : InputMethodService() {
     getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
   }
 
+  private val imeManager by lazy {
+    getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+  }
+
   /** Client responsible for communicating with the connection service. */
   private lateinit var serviceClient: ConnectionServiceClient
 
@@ -177,6 +190,12 @@ class VirtualKeyboardService : InputMethodService() {
 
   private val app
     get() = application as Application
+
+  private val serviceScope =
+    CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+  private var connectionStateMonitorJob: Job? = null
+  private var imePickerDelayJob: Job? = null
 
   override fun onUpdateExtractedText(token: Int, text: ExtractedText?) {
     super.onUpdateExtractedText(token, text)
@@ -250,6 +269,63 @@ class VirtualKeyboardService : InputMethodService() {
 
     serviceClient.bind()
     keyboardViewLifecycleOwner.onCreate()
+
+    // Monitor connection state and handle IME switching
+    startConnectionStateMonitoring()
+  }
+
+  /**
+   * Start monitoring connection state to show IME picker after a short delay when disconnected.
+   */
+  private fun startConnectionStateMonitoring() {
+    connectionStateMonitorJob = serviceScope.launch {
+      var previouslyConnected: Boolean? = null
+
+      serviceClient.stateFlow.collect { state ->
+        log.debug {
+          "Connection state changed: isConnected=${state.isConnected}, isEnabled=${state.isEnabled}"
+        }
+
+        val currentlyConnected = state.isConnected && state.ackReceived && state.isEnabled
+
+        // Cancel any pending IME picker if we reconnected
+        if (currentlyConnected && imePickerDelayJob?.isActive == true) {
+          log.debug { "Reconnected, cancelling IME picker delay" }
+          imePickerDelayJob?.cancel()
+          imePickerDelayJob = null
+        }
+
+        // Only show IME picker if we were previously connected and now we're not
+        // Skip the initial state to avoid showing picker on service startup
+        if (previouslyConnected == true && !currentlyConnected) {
+          log.info { "Connection lost or disabled, scheduling IME picker in 10 seconds" }
+
+          // Cancel any existing delay job
+          imePickerDelayJob?.cancel()
+
+          // Start new delay job
+          imePickerDelayJob = serviceScope.launch {
+            delay(10_000)
+            log.info { "10 seconds elapsed since disconnect, showing IME picker" }
+            showIMEPicker()
+          }
+        }
+
+        previouslyConnected = currentlyConnected
+      }
+    }
+  }
+
+  /**
+   * Show the system IME picker dialog to let the user choose a keyboard.
+   */
+  private fun showIMEPicker() {
+    try {
+      imeManager.showInputMethodPicker()
+      log.debug { "IME picker shown" }
+    } catch (err: Exception) {
+      log.error(err) { "Error showing IME picker" }
+    }
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -257,6 +333,19 @@ class VirtualKeyboardService : InputMethodService() {
   }
 
   override fun onDestroy() {
+    log.debug { "onDestroy:${this::class.java.simpleName}" }
+
+    // Cancel connection state monitoring
+    connectionStateMonitorJob?.cancel()
+    connectionStateMonitorJob = null
+
+    // Cancel any pending IME picker delay
+    imePickerDelayJob?.cancel()
+    imePickerDelayJob = null
+
+    // Cancel service scope
+    serviceScope.cancel()
+
     serviceClient.unbind()
     super.onDestroy()
     catch({ keyboardViewLifecycleOwner.onDestroy() }) { err: Throwable ->

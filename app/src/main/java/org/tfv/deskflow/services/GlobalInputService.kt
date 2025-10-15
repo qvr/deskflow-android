@@ -412,6 +412,31 @@ class GlobalInputService : AccessibilityService() {
 
     startService(Intent(applicationContext, ConnectionService::class.java))
     serviceClient.bind()
+
+    // Monitor connection state to reset IME state when disconnected
+    monitorConnectionState()
+  }
+
+  /**
+   * Monitor connection state and reset IME-related state when disconnected.
+   */
+  private fun monitorConnectionState() {
+    serviceScope.launch {
+      serviceClient.stateFlow.collect { state ->
+        log.debug {
+          "Connection state changed in GlobalInputService: isConnected=${state.isConnected}, isEnabled=${state.isEnabled}"
+        }
+
+        // When disconnected or disabled, reset IME tracking state
+        if (!state.isConnected || !state.isEnabled) {
+          log.info { "Connection lost or disabled, resetting IME state" }
+
+          // Reset IME picker tracking
+          pickerShownForPackage = null
+          keyboardWasOpen.store(false)
+        }
+      }
+    }
   }
 
   /**
