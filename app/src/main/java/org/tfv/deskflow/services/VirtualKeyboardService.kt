@@ -465,6 +465,8 @@ class VirtualKeyboardService : InputMethodService() {
    * @param event The keyboard event to handle.
    */
   private fun onKeyboardEvent(event: KeyboardEvent) {
+    log.debug { "onKeyboardEvent: $event" }
+
     // 1. Check if we have a valid input connection.
     val ic = currentInputConnection
     if (ic == null) {
@@ -481,8 +483,8 @@ class VirtualKeyboardService : InputMethodService() {
       return
     }
 
-    // 3. Only handle `Down` type events.
-    if (event.type != KeyboardEvent.Type.Down) {
+    // 3. Only handle Down and Repeat events - ignore Up to avoid duplicates.
+    if (event.type == KeyboardEvent.Type.Up) {
       return
     }
 
@@ -508,9 +510,14 @@ class VirtualKeyboardService : InputMethodService() {
         val action =
           keyboardActions.entries.find { it.value.specialKey == specialKey }
         if (action == null) {
-          log.warn { "No action registered for special key: $specialKey" }
-          log.debug { "Special key detected: $specialKey" }
-          specialKey.imeText?.let { applyCommand(it, ic, et) }
+          // No action registered for this special key
+          // Only apply fallback if the special key has imeText defined
+          if (specialKey.imeText != null) {
+            log.debug { "Special key detected with imeText: $specialKey" }
+            applyCommand(specialKey.imeText, ic, et)
+          } else {
+            log.warn { "No action registered for special key without imeText: $specialKey - ignoring" }
+          }
           return
         }
 
@@ -522,6 +529,25 @@ class VirtualKeyboardService : InputMethodService() {
         val keyChar = id.toChar()
         val keyStr = keyChar.toString()
 
+        // If ExtractedText is null (terminal apps), skip shortcut lookup
+        // and handle Ctrl combinations as control characters
+        if (et == null) {
+          if (mods.isControl && !mods.isAlt && !mods.isMeta && !mods.isSuper) {
+            // Convert to ASCII control character (Ctrl+A=0x01, Ctrl+C=0x03, etc.)
+            val upperChar = keyChar.uppercaseChar()
+            if (upperChar in 'A'..'Z') {
+              val controlChar = (upperChar.code - 'A'.code + 1).toChar()
+              log.debug { "Terminal: Ctrl+$upperChar -> control char ${controlChar.code}" }
+              applyCommand(controlChar.toString(), ic, et)
+              return
+            }
+          }
+          // Regular character in terminal
+          applyCommand(keyStr, ic, et)
+          return
+        }
+
+        // ExtractedText is available - check for editor shortcuts (Copy/Paste/etc.)
         var modKeys = ModifierKeys()
         val setModKeys = { isPressed: Boolean, modKey: Keyboard.ModifierKey ->
           if (isPressed) modKeys = modKeys.updateModifierKeys(true, modKey)
@@ -537,10 +563,12 @@ class VirtualKeyboardService : InputMethodService() {
         //        TODO: Parse modifier keys from event (`mask` field) and create
         // a `ModifierKeys` instance
         val shortcut = ShortcutKey(event.id.toInt(), modKeys)
+
         val actionEntry =
           keyboardActions.entries.find {
             it.value.defaultShortcutKeys.contains(shortcut)
           }
+
         when {
           actionEntry != null -> {
             log.debug {

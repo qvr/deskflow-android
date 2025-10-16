@@ -69,6 +69,7 @@ import org.tfv.deskflow.client.events.KeyboardEvent
 import org.tfv.deskflow.client.events.MouseEvent
 import org.tfv.deskflow.client.events.ScreenEvent
 import org.tfv.deskflow.client.models.ClipboardData
+import org.tfv.deskflow.client.util.Keyboard
 import org.tfv.deskflow.client.util.logging.KLoggingManager
 import org.tfv.deskflow.components.GlobalKeyboardManager
 import org.tfv.deskflow.ext.canDrawOverlays
@@ -471,6 +472,20 @@ class GlobalInputService : AccessibilityService() {
    */
   private fun onKeyboardEvent(event: KeyboardEvent) {
     log.debug { "onKeyboardEvent: $event" }
+
+    // always process modifier key events (both Down and Up) to keep keyboardManager state synchronized
+    val modKey = Keyboard.findModifierKey(event.id.toInt())
+    if (modKey != null) {
+      log.debug { "Modifier key event: $modKey, type=${event.type}" }
+      keyboardManager.process(event)
+      return
+    }
+
+    // Only handle Down and Repeat events for non-modifier keys - ignore Up to avoid duplicates
+    if (event.type == KeyboardEvent.Type.Up) {
+      return
+    }
+
     keyboardManager.process(event)
   }
 
