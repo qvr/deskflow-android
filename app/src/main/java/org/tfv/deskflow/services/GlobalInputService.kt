@@ -255,7 +255,9 @@ class GlobalInputService : AccessibilityService() {
 
     if (kbWasOpen) return
 
-    if (!serviceClient.state.isConnected) return
+    if (!serviceClient.stateFlow.value.isConnected || !serviceClient.stateFlow.value.isEnabled) {
+      return
+    }
 
     keyboardWasOpen.store(true)
 
