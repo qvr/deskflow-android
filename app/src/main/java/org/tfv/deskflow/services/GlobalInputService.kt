@@ -62,6 +62,7 @@ import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.tfv.deskflow.R
@@ -177,6 +178,71 @@ class GlobalInputService : AccessibilityService() {
    * control the visibility of the mouse pointer view.
    */
   @Volatile private var mousePointerVisible = false
+
+  /**
+   * Tracks the current mouse button state for drag detection.
+   * Stores button ID and the position where the button was pressed.
+   */
+  private data class MouseButtonState(
+    val buttonId: UInt,
+    val downX: Int,
+    val downY: Int,
+    val downTime: Long = System.currentTimeMillis()
+  )
+
+  /**
+   * Current mouse button down state, null if no button is pressed.
+   * Used for drag-and-drop implementation.
+   */
+  @Volatile private var mouseButtonDown: MouseButtonState? = null
+
+  /**
+   * Tracks the active drag gesture state. When non-null, a drag is in progress.
+   * For multi-touch support, lastStrokes contains one stroke per finger:
+   * - Index 0: Primary finger (main touch point)
+   * - Index 1 (if present): Secondary finger (offset to the right)
+   * - Index 2 (if present): Tertiary finger (further right)
+   */
+  private data class DragState(
+    val startX: Float,
+    val startY: Float,
+    var lastDispatchedX: Float, // Position where last stroke ended
+    var lastDispatchedY: Float, // Position where last stroke ended
+    var targetX: Float,          // Target position for next stroke
+    var targetY: Float,          // Target position for next stroke
+    var lastStrokes: List<StrokeDescription> = emptyList(), // List of stroke descriptions for multi-touch
+    var isEnding: Boolean = false, // Flag to indicate drag should end after current gesture
+    var initialHoldDuration: Long = 0, // Duration of initial hold before drag starts (0 = speculative hold)
+    var fingerCount: Int = 1 // Number of fingers in multi-touch (1-3)
+  )
+
+  /**
+   * Current drag state, null if no drag is in progress.
+   */
+  @Volatile private var activeDragState: DragState? = null
+
+  /**
+   * Flag to prevent dispatching new drag updates while one is in progress.
+   */
+  @Volatile private var dragGestureInProgress = false
+
+  /**
+   * Threshold for movement to be considered a drag (in pixels).
+   * If mouse moves more than this distance while button is down, it's a drag.
+   */
+  private val dragThreshold = 10
+
+  /**
+   * Offsets for multi-touch fingers relative to the primary finger position.
+   * Index 0 is always at (0, 0) - the primary finger.
+   * Index 1 (2-finger touch): offset to the right by this amount
+   * Index 2 (3-finger touch): further right by this amount
+   */
+  private val multiTouchFingerOffsets = listOf(
+    Pair(0, 0),      // Primary finger (index 0)
+    Pair(100, 0),     // Secondary finger (index 1) - 100 pixels right
+    Pair(200, 0)      // Tertiary finger (index 2) - 200 pixels right
+  )
 
   private val keyboardWasOpen = AtomicBoolean(false)
 
@@ -503,45 +569,320 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /**
-   * Perform a click on the closest node to the mouse pointer. This is used to
-   * simulate a mouse click on the screen.
-   * > Example: Used for clicking on buttons or input fields in the global input
-   * > service.
+   * Perform a tap/click gesture at the specified position.
+   * Used for simulating mouse clicks, long presses, and context menus.
+   *
+   * @param x The X coordinate where to tap
+   * @param y The Y coordinate where to tap
+   * @param duration How long to hold the touch (100ms = click, 500ms+ = long press, 1000ms+ = context menu)
+   *
+   * > Example: Used for left clicks, middle clicks (long press), and right clicks (context menu).
    */
-  @Suppress("unused")
-  private fun clickClosestNodeToPointer() {
-    val nodeInfo = rootInActiveWindow ?: return
-    val nearestNodeToMouse: AccessibilityNodeInfo? =
-      findSmallestNodeAtPoint(
-        nodeInfo,
-        mousePointerLayout.x,
-        mousePointerLayout.y,
-      )
-    if (nearestNodeToMouse != null) {
-      logNodeHierarchy(nearestNodeToMouse, 0)
-      nearestNodeToMouse.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-    }
-  }
-
-  /**
-   * Perform a click gesture at the current mouse pointer position. This is used
-   * to simulate a mouse click on the screen.
-   * > Example: Used for clicking on buttons or input fields in the global input
-   * > service.
-   */
-  private fun clickGesture(
+  private fun tapGesture(
     x: Float = mousePointerLayout.x.toFloat(),
     y: Float = mousePointerLayout.y.toFloat(),
+    duration: Long = 100,
   ) {
-
-    log.debug { "Click gesture at [$x, $y]" }
+    log.info { "Tap gesture at [$x, $y] with duration ${duration}ms" }
 
     val path = Path().apply { moveTo(x, y) }
     val gesture =
       GestureDescription.Builder()
-        .addStroke(StrokeDescription(path, 0, 100))
+        .addStroke(StrokeDescription(path, 0, duration))
         .build()
     dispatchGesture(gesture, gestureResultCallback, globalInputHandler)
+  }
+
+  /**
+   * Start a speculative hold gesture that can be converted to a drag.
+   * This provides immediate tactile feedback when the mouse button is pressed.
+   * The gesture completes immediately (due to willContinue=true), but the drag state
+   * remains active, waiting for either mouse movement (convert to drag) or button release (end cleanly).
+   *
+   * Supports multi-touch by creating multiple stroke descriptions for simulated fingers.
+   * The number of fingers is determined by the button ID (can be extended to support multi-touch).
+   *
+   * @param x The X coordinate where to start the hold
+   * @param y The Y coordinate where to start the hold
+   * @param fingerCount Number of fingers to simulate (1, 2, or 3). Defaults to 1.
+   */
+  private fun startSpeculativeHold(x: Float, y: Float, fingerCount: Int = 1) {
+    // If there's already an active drag, ignore this
+    if (activeDragState != null) {
+      log.warn { "Speculative hold ignored - drag already active" }
+      return
+    }
+
+    val clampedFingerCount = fingerCount.coerceIn(1, 3)
+
+    log.info { "Starting speculative hold at [$x, $y] with $clampedFingerCount finger(s)" }
+
+    dragGestureInProgress = true
+
+    // Create touch-down with willContinue=true for each finger
+    // Note: With willContinue=true, this will complete almost immediately regardless of duration
+    // The drag state remains active until mouse moves (-> drag) or button up (-> release)
+    val strokes = mutableListOf<StrokeDescription>()
+    val gestureBuilder = GestureDescription.Builder()
+
+    for (fingerIndex in 0 until clampedFingerCount) {
+      val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
+      val fingerX = x + offsetX
+      val fingerY = y + offsetY
+
+      val path = Path().apply { moveTo(fingerX, fingerY) }
+      val stroke = StrokeDescription(path, (fingerIndex * 5).toLong(), 100, true) // duration doesn't matter with willContinue=true
+      strokes.add(stroke)
+      gestureBuilder.addStroke(stroke)
+    }
+
+    val gesture = gestureBuilder.build()
+
+    // Create drag state to track this speculative hold
+    val dragState = DragState(
+      startX = x,
+      startY = y,
+      lastDispatchedX = x,
+      lastDispatchedY = y,
+      targetX = x,
+      targetY = y,
+      lastStrokes = strokes,
+      initialHoldDuration = 0, // Will be set when/if converted to actual drag
+      fingerCount = clampedFingerCount
+    )
+    activeDragState = dragState
+
+    dispatchGesture(gesture, object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        log.info { "Speculative hold gesture dispatched successfully ($clampedFingerCount finger(s))" }
+        dragGestureInProgress = false
+        // With willContinue=true, this will complete almost immediately (~20ms)
+        // The drag state remains active - we're waiting for either:
+        // 1. Mouse movement -> convert to drag
+        // 2. Mouse button up -> end cleanly
+        // Do NOT clean up activeDragState here!
+
+        // Check if we already have a pending end gesture (a very fast click happened)
+        if (activeDragState?.isEnding == true) {
+          log.info { "Dispatching deferred end gesture after speculative hold completed" }
+          dispatchFinalStroke()
+        }
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Speculative hold cancelled" }
+        activeDragState = null
+        dragGestureInProgress = false
+      }
+    }, globalInputHandler)
+  }
+
+  /**
+   * Update drag to new position by continuing the stroke.
+   * Updates target and dispatches immediately to minimize position skipping.
+   */
+  private fun updateDragGesture(toX: Float, toY: Float) {
+    val dragState = activeDragState ?: return
+
+    // Always update target position
+    dragState.targetX = toX
+    dragState.targetY = toY
+
+    // If previous gesture still in progress, position is queued and will be dispatched on completion
+    if (dragGestureInProgress) {
+      return
+    }
+
+    // Dispatch continuation now that previous gesture is complete
+    dispatchDragContinuation()
+  }
+
+  /**
+   * Dispatch a drag continuation stroke from the last completed position to the current target position.
+   * Must only be called when no gesture is in progress (dragGestureInProgress == false).
+   * Handles multi-touch by continuing each finger's stroke independently with their relative offsets.
+   */
+  private fun dispatchDragContinuation() {
+    val dragState = activeDragState ?: return
+
+    // Check if we're ending the drag
+    if (dragState.isEnding) {
+      dispatchFinalStroke()
+      return
+    }
+
+    // Only dispatch if we haven't already reached the target position
+    if (dragState.lastDispatchedX == dragState.targetX &&
+        dragState.lastDispatchedY == dragState.targetY) {
+      log.info { "Already at target position [${dragState.targetX}, ${dragState.targetY}], skipping" }
+      return
+    }
+
+    val lastStrokes = dragState.lastStrokes
+    if (lastStrokes.isEmpty()) {
+      log.warn { "No last strokes to continue from" }
+      return
+    }
+
+    val fromX = dragState.lastDispatchedX
+    val fromY = dragState.lastDispatchedY
+    val toX = dragState.targetX
+    val toY = dragState.targetY
+
+    log.info { "Dispatching drag continuation from [$fromX, $fromY] to [$toX, $toY] (${lastStrokes.size} finger(s))" }
+
+    dragGestureInProgress = true
+
+    // Continue each finger's stroke independently with their relative offsets
+    val continuedStrokes = mutableListOf<StrokeDescription>()
+    val gestureBuilder = GestureDescription.Builder()
+
+    for ((fingerIndex, lastStroke) in lastStrokes.withIndex()) {
+      val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
+      val fromFingerX = fromX + offsetX
+      val fromFingerY = fromY + offsetY
+      val toFingerX = toX + offsetX
+      val toFingerY = toY + offsetY
+
+      val path = Path().apply {
+        moveTo(fromFingerX, fromFingerY)
+        lineTo(toFingerX, toFingerY)
+      }
+
+      // Continue with 50ms duration, startTime=0 for immediate movement
+      // Note: The hold has already been provided by the speculative hold gesture
+      val stroke = lastStroke.continueStroke(path, 0, 50, true) // willContinue = true
+      continuedStrokes.add(stroke)
+      gestureBuilder.addStroke(stroke)
+    }
+
+    dragState.lastStrokes = continuedStrokes
+    dragState.lastDispatchedX = toX
+    dragState.lastDispatchedY = toY
+
+    val gesture = gestureBuilder.build()
+
+    dispatchGesture(gesture, object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        log.info { "Drag continuation completed" }
+        dragGestureInProgress = false
+
+        // If position has changed while we were dispatching, send another continuation
+        if (activeDragState != null) {
+          // Check if there's a new position to continue to
+          dispatchDragContinuation()
+        }
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Drag continuation cancelled" }
+        activeDragState = null
+        dragGestureInProgress = false
+      }
+    }, globalInputHandler)
+  }
+
+  /**
+   * End the active drag gesture by completing the final stroke.
+   */
+  private fun endDragGesture(endX: Float, endY: Float) {
+    val dragState = activeDragState
+    if (dragState == null) {
+      log.warn { "endDragGesture called but no active drag state" }
+      return
+    }
+
+    // Update target to end position and mark as ending
+    dragState.targetX = endX
+    dragState.targetY = endY
+    dragState.isEnding = true
+
+    // If a gesture is in progress, let it complete first
+    if (dragGestureInProgress) {
+      log.info { "Gesture in progress, will end after completion at [$endX, $endY]" }
+      return
+    }
+
+    // Dispatch the final stroke
+    dispatchFinalStroke()
+  }
+
+  /**
+   * Dispatch the final drag stroke that releases the touch.
+   * Handles multi-touch by ending each finger's stroke independently.
+   */
+  private fun dispatchFinalStroke() {
+    val dragState = activeDragState ?: return
+
+    val lastStrokes = dragState.lastStrokes
+    if (lastStrokes.isEmpty()) {
+      log.warn { "dispatchFinalStroke called but no last strokes" }
+      activeDragState = null
+      return
+    }
+
+    val endX = dragState.targetX
+    val endY = dragState.targetY
+
+    // Determine if this is a speculative hold that never became a drag
+    val isSpeculativeHoldClick = dragState.initialHoldDuration == 0L
+
+    if (isSpeculativeHoldClick) {
+      log.info { "Ending speculative hold as click at [$endX, $endY] (${lastStrokes.size} finger(s))" }
+    } else {
+      log.info { "Ending drag gesture from [${dragState.lastDispatchedX}, ${dragState.lastDispatchedY}] to [$endX, $endY] (${lastStrokes.size} finger(s))" }
+    }
+
+    dragGestureInProgress = true
+
+    // End each finger's stroke independently with their relative offsets
+    val finalStrokes = mutableListOf<StrokeDescription>()
+    val gestureBuilder = GestureDescription.Builder()
+
+    for ((fingerIndex, lastStroke) in lastStrokes.withIndex()) {
+      val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
+      val fromFingerX = dragState.lastDispatchedX + offsetX
+      val fromFingerY = dragState.lastDispatchedY + offsetY
+      val toFingerX = endX + offsetX
+      val toFingerY = endY + offsetY
+
+      val path = Path().apply {
+        moveTo(fromFingerX, fromFingerY)
+        lineTo(toFingerX, toFingerY)
+      }
+
+      // Final stroke: short duration, willContinue = false to release touch
+      val stroke = lastStroke.continueStroke(path, 0, 10, false)
+      finalStrokes.add(stroke)
+      gestureBuilder.addStroke(stroke)
+    }
+
+    val gesture = gestureBuilder.build()
+
+    dispatchGesture(gesture, object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        log.info { "Drag end gesture completed" }
+        activeDragState = null
+        dragGestureInProgress = false
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Drag end gesture cancelled" }
+        activeDragState = null
+        dragGestureInProgress = false
+      }
+    }, globalInputHandler)
+  }
+
+  /**
+   * Check if the mouse has moved enough to be considered a drag operation.
+   * Returns true if movement exceeds dragThreshold.
+   */
+  private fun isDragMovement(startX: Int, startY: Int, currentX: Int, currentY: Int): Boolean {
+    val deltaX = abs(currentX - startX)
+    val deltaY = abs(currentY - startY)
+    val distance = kotlin.math.sqrt((deltaX * deltaX + deltaY * deltaY).toDouble())
+    return distance > dragThreshold
   }
 
   /**
@@ -563,30 +904,168 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /**
-   * Move the cursor to the specified coordinates. This is used to move the
-   * mouse pointer to a specific location on the screen.
-   * > Example: Used for mouse movement in the global input service.
+   * Handle mouse events from the server. This processes mouse movement, clicks, and wheel events.
+   * Tracks button state for drag-and-drop support.
+   * > Example: Used for mouse movement and clicking in the global input service.
    */
   private fun onMouseEvent(event: MouseEvent) {
     when (event.type) {
       MouseEvent.Type.Move -> {
-        moveMousePointer(event.x, event.y)
+        val currentX = event.x
+        val currentY = event.y
+        moveMousePointer(currentX, currentY)
+
+        // Check if we're in a drag operation
+        mouseButtonDown?.let { buttonState ->
+          val dragState = activeDragState
+          if (dragState != null) {
+            // Check if this is a speculative hold that needs to be converted to actual drag
+            if (dragState.initialHoldDuration == 0L && isDragMovement(buttonState.downX, buttonState.downY, currentX, currentY)) {
+              // Convert speculative hold to drag
+              val buttonDownDuration = System.currentTimeMillis() - buttonState.downTime
+              log.info { "Converting speculative hold to drag: from [${buttonState.downX},${buttonState.downY}] to [$currentX,$currentY], held for ${buttonDownDuration}ms" }
+              dragState.initialHoldDuration = buttonDownDuration
+              dragState.targetX = currentX.toFloat()
+              dragState.targetY = currentY.toFloat()
+              // Now that it's converted, dispatch the first drag continuation
+              if (!dragGestureInProgress) {
+                dispatchDragContinuation()
+              }
+            } else if (dragState.initialHoldDuration == 0L) {
+              // Still in speculative hold (hasn't exceeded threshold), just update target position
+              dragState.targetX = currentX.toFloat()
+              dragState.targetY = currentY.toFloat()
+            } else {
+              // Already dragging, update the path
+              updateDragGesture(currentX.toFloat(), currentY.toFloat())
+            }
+          }
+        }
       }
 
       MouseEvent.Type.MoveRelative -> {
-        moveMousePointer(
-          mousePointerLayout.x + event.x,
-          mousePointerLayout.y + event.y,
-        )
+        val newX = mousePointerLayout.x + event.x
+        val newY = mousePointerLayout.y + event.y
+        moveMousePointer(newX, newY)
+
+        // Check if we're in a drag operation
+        mouseButtonDown?.let { buttonState ->
+          val dragState = activeDragState
+          if (dragState != null) {
+            // Check if this is a speculative hold that needs to be converted to actual drag
+            if (dragState.initialHoldDuration == 0L && isDragMovement(buttonState.downX, buttonState.downY, newX, newY)) {
+              // Convert speculative hold to drag
+              val buttonDownDuration = System.currentTimeMillis() - buttonState.downTime
+              log.info { "Converting speculative hold to drag (relative): from [${buttonState.downX},${buttonState.downY}] to [$newX,$newY], held for ${buttonDownDuration}ms" }
+              dragState.initialHoldDuration = buttonDownDuration
+              dragState.targetX = newX.toFloat()
+              dragState.targetY = newY.toFloat()
+              // Now that it's converted, dispatch the first drag continuation
+              if (!dragGestureInProgress) {
+                dispatchDragContinuation()
+              }
+            } else if (dragState.initialHoldDuration == 0L) {
+              // Still in speculative hold (hasn't exceeded threshold), just update target position
+              dragState.targetX = newX.toFloat()
+              dragState.targetY = newY.toFloat()
+            } else {
+              // Already dragging, update the path
+              updateDragGesture(newX.toFloat(), newY.toFloat())
+            }
+          }
+        }
       }
 
       MouseEvent.Type.Down -> {
-        log.debug { "Down [$event]" }
+        // Track button down state for drag detection
+        mouseButtonDown = MouseButtonState(
+          buttonId = event.id,
+          downX = mousePointerLayout.x,
+          downY = mousePointerLayout.y
+        )
+        log.info { "Mouse button down: id=${event.id}, pos=[${mousePointerLayout.x}, ${mousePointerLayout.y}]" }
+
+        // For left button (id=1), start a speculative hold gesture immediately
+        // This provides immediate feedback and can be converted to drag if mouse moves
+        if (event.id.toInt() == 1) {
+          startSpeculativeHold(mousePointerLayout.x.toFloat(), mousePointerLayout.y.toFloat())
+        }
+
+        // For middle button (id=2), start a 3-finger speculative hold gesture immediately
+        if (event.id.toInt() == 2) {
+          startSpeculativeHold(mousePointerLayout.x.toFloat(), mousePointerLayout.y.toFloat(), 3)
+        }
+
+        // For right button (id=3), start a 2-finger speculative hold gesture immediately
+        if (event.id.toInt() == 3) {
+          startSpeculativeHold(mousePointerLayout.x.toFloat(), mousePointerLayout.y.toFloat(), 2)
+        }
       }
 
       MouseEvent.Type.Up -> {
-        log.debug { "Up [$event]" }
-        clickGesture()
+        val buttonState = mouseButtonDown
+
+        val buttonId = event.id.toInt()
+        val currentX = mousePointerLayout.x.toFloat()
+        val currentY = mousePointerLayout.y.toFloat()
+
+        log.info { "Mouse button up: id=$buttonId, pos=[$currentX, $currentY]" }
+
+        // Check if we have an active drag gesture
+        val dragState = activeDragState
+        if (dragState != null) {
+          // Check if this was a speculative hold that was never converted to drag
+          if (dragState.initialHoldDuration == 0L) {
+            // Calculate click duration before clearing button state
+            val clickDuration = buttonState?.let {
+              System.currentTimeMillis() - it.downTime
+            } ?: 100L
+            log.info { "Ending speculative hold (no drag occurred) - will act as click with duration ${clickDuration}ms" }
+
+            // Clear button state now
+            mouseButtonDown = null
+
+            // End the drag gesture - will release the held touch
+            endDragGesture(currentX, currentY)
+            return
+          } else {
+            // This was an actual drag operation
+            log.info { "Ending active drag operation with button $buttonId" }
+            mouseButtonDown = null // Clear button state
+            endDragGesture(currentX, currentY)
+            return
+          }
+        }
+
+        // No active drag - clear button state before processing normal click
+        mouseButtonDown = null
+
+        // Calculate how long the button was held down
+        val buttonDownDuration = buttonState?.let {
+          System.currentTimeMillis() - it.downTime
+        } ?: 100L // Default to 100ms if no button state
+
+        // Perform different gestures based on button
+        // Button mapping based on Deskflow protocol:
+        // 1 = Left button, 2 = Middle button, 3 = Right button, 4 = Side Back, 5 = Side Forward
+        // Buttons 1-3 are handled by speculative hold for 1, 3 and 2 finger tap/hold/drag respectively
+        when (buttonId) {
+          4 -> {
+            // Side Back button - trigger Android Back action
+            log.info { "Side Back button (button 4) - performing Back action" }
+            performGlobalAction(GLOBAL_ACTION_BACK)
+          }
+          5 -> {
+            // Side Forward button - trigger Recent Apps (task switcher)
+            log.info { "Side Forward button (button 5) - performing Recent Apps action" }
+            performGlobalAction(GLOBAL_ACTION_RECENTS)
+          }
+          else -> {
+            // Unknown buttons - default to normal click with actual duration
+            log.info { "Button $buttonId click (default) at [$currentX, $currentY] held for ${buttonDownDuration}ms" }
+            tapGesture(currentX, currentY, buttonDownDuration)
+          }
+        }
       }
 
       MouseEvent.Type.Wheel -> {
