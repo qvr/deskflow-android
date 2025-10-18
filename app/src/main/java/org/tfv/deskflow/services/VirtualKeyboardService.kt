@@ -338,6 +338,25 @@ class VirtualKeyboardService : InputMethodService() {
     keyboardViewLifecycleOwner.onPause()
   }
 
+  override fun onComputeInsets(outInsets: Insets?) {
+    super.onComputeInsets(outInsets)
+    if (outInsets != null) {
+      val view = window?.window?.decorView
+      if (view != null) {
+        // Get the actual height of our keyboard view
+        val keyboardHeight = view.height
+
+        // Set the visible top inset - this tells the app where content should start
+        outInsets.contentTopInsets = keyboardHeight
+        outInsets.visibleTopInsets = keyboardHeight
+
+        // Mark which insets are touched by our keyboard
+        outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_CONTENT
+        outInsets.touchableRegion.setEmpty()
+      }
+    }
+  }
+
   override fun onCreateInputView(): View {
     log.debug { "onCreateInputView" }
     val win = window.window ?: return super.onCreateInputView()
@@ -349,6 +368,12 @@ class VirtualKeyboardService : InputMethodService() {
     view.setViewTreeLifecycleOwner(keyboardViewLifecycleOwner)
     view.setViewTreeViewModelStoreOwner(keyboardViewLifecycleOwner)
     view.setViewTreeSavedStateRegistryOwner(keyboardViewLifecycleOwner)
+
+    // Request insets computation when view layout changes
+    view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+      // Update the input view insets when the layout changes
+      window?.window?.decorView?.requestLayout()
+    }
 
     // win.setBackgroundDrawable(android.graphics.Color.TRANSPARENT.toDrawable())
     // win.decorView.background  =
