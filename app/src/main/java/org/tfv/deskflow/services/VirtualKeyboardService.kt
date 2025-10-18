@@ -476,7 +476,45 @@ class VirtualKeyboardService : InputMethodService() {
     val mods = event.getModifiers()
     val editHistory = getEditHistory()
 
+    // Build modifier keys for editor shortcut matching, skip if ExtractedText is null
+    val shortcutActionEntry = if (et != null) {
+      var modKeys = ModifierKeys()
+      val setModKeys = { isPressed: Boolean, modKey: Keyboard.ModifierKey ->
+        if (isPressed) modKeys = modKeys.updateModifierKeys(true, modKey)
+      }
+      setModKeys(mods.isMeta, Keyboard.ModifierKey.Meta)
+      setModKeys(mods.isSuper, Keyboard.ModifierKey.Super)
+      setModKeys(mods.isControl, Keyboard.ModifierKey.Control)
+      setModKeys(mods.isAlt, Keyboard.ModifierKey.Alt)
+      setModKeys(mods.isShift, Keyboard.ModifierKey.Shift)
+      setModKeys(mods.isAltGr, Keyboard.ModifierKey.AltRight)
+      setModKeys(mods.isCapsLock, Keyboard.ModifierKey.CapsLock)
+
+      val shortcut = ShortcutKey(event.id.toInt(), modKeys)
+      keyboardActions.entries.find {
+        it.value.defaultShortcutKeys.contains(shortcut)
+      }
+    } else {
+      null
+    }
+
     when {
+      // Priority 1: Shortcut actions (e.g., Control+Return for Perform Editor Action)
+      shortcutActionEntry != null -> {
+        log.debug {
+          "Matched shortcut to action(type=${shortcutActionEntry.key},value=${shortcutActionEntry.value})"
+        }
+        shortcutActionEntry.key.action(
+          ic,
+          et,
+          specialKey,
+          mods,
+          event,
+          editHistory,
+          this,
+        )
+      }
+      // Priority 2: Special key actions (e.g., BackSpace, Delete, etc.)
       specialKey != null -> {
         val action =
           keyboardActions.entries.find { it.value.specialKey == specialKey }
@@ -495,72 +533,26 @@ class VirtualKeyboardService : InputMethodService() {
         log.debug { "Invoking action: ${action.key}" }
         action.key.action(ic, et, specialKey, mods, event, editHistory, this)
       }
+      // Priority 3: Regular character input (including terminal apps)
       else -> {
         log.debug { "Received $event" }
         val keyChar = id.toChar()
         val keyStr = keyChar.toString()
 
-        // If ExtractedText is null (terminal apps), skip shortcut lookup
-        // and handle Ctrl combinations as control characters
-        if (et == null) {
-          if (mods.isControl && !mods.isAlt && !mods.isMeta && !mods.isSuper) {
-            // Convert to ASCII control character (Ctrl+A=0x01, Ctrl+C=0x03, etc.)
-            val upperChar = keyChar.uppercaseChar()
-            if (upperChar in 'A'..'Z') {
-              val controlChar = (upperChar.code - 'A'.code + 1).toChar()
-              log.debug { "Terminal: Ctrl+$upperChar -> control char ${controlChar.code}" }
-              applyCommand(controlChar.toString(), ic, et)
-              return
-            }
-          }
-          // Regular character in terminal
-          applyCommand(keyStr, ic, et)
-          return
-        }
-
-        // ExtractedText is available - check for editor shortcuts (Copy/Paste/etc.)
-        var modKeys = ModifierKeys()
-        val setModKeys = { isPressed: Boolean, modKey: Keyboard.ModifierKey ->
-          if (isPressed) modKeys = modKeys.updateModifierKeys(true, modKey)
-        }
-        setModKeys(mods.isMeta, Keyboard.ModifierKey.Meta)
-        setModKeys(mods.isSuper, Keyboard.ModifierKey.Super)
-        setModKeys(mods.isControl, Keyboard.ModifierKey.Control)
-        setModKeys(mods.isAlt, Keyboard.ModifierKey.Alt)
-        setModKeys(mods.isShift, Keyboard.ModifierKey.Shift)
-        setModKeys(mods.isAltGr, Keyboard.ModifierKey.AltRight)
-        setModKeys(mods.isCapsLock, Keyboard.ModifierKey.CapsLock)
-
-        //        TODO: Parse modifier keys from event (`mask` field) and create
-        // a `ModifierKeys` instance
-        val shortcut = ShortcutKey(event.id.toInt(), modKeys)
-
-        val actionEntry =
-          keyboardActions.entries.find {
-            it.value.defaultShortcutKeys.contains(shortcut)
-          }
-
-        when {
-          actionEntry != null -> {
-            log.debug {
-              "Matched shortcut($shortcut) to action(type=${actionEntry.key},value=${actionEntry.value})"
-            }
-            actionEntry.key.action(
-              ic,
-              et,
-              specialKey,
-              mods,
-              event,
-              editHistory,
-              this,
-            )
-          }
-
-          else -> {
-            log.debug { "Applying command: $keyStr" }
-            applyCommand(keyStr, ic, et)
+        // Terminal apps: Handle Ctrl+A-Z as ASCII control characters
+        if (et == null && mods.isControl && !mods.isAlt && !mods.isMeta && !mods.isSuper) {
+          val upperChar = keyChar.uppercaseChar()
+          if (upperChar in 'A'..'Z') {
+            val controlChar = (upperChar.code - 'A'.code + 1).toChar()
+            log.debug { "Terminal: Ctrl+$upperChar -> control char ${controlChar.code}" }
+            applyCommand(controlChar.toString(), ic, et)
+            return
           }
         }
+
+        // Apply regular character input
+        log.debug { "Applying command: $keyStr" }
+        applyCommand(keyStr, ic, et)
       }
     }
   }
