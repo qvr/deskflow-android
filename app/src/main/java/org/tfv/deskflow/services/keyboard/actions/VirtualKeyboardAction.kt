@@ -202,6 +202,65 @@ val editActionRedo: VirtualKeyboardActionCallable =
     }
   }
 
+val editActionInsertNewline: VirtualKeyboardActionCallable =
+  { ic, et, specialKey, mods, event, editHistory, service ->
+    log.debug { "Inserting newline (explicit)" }
+    ic.commitText("\n", 1)
+    service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+  }
+
+val editActionPerformEditorAction: VirtualKeyboardActionCallable =
+  { ic, et, specialKey, mods, event, editHistory, service ->
+    val editorInfo = service.editorInfo
+    if (editorInfo != null) {
+      val imeAction = editorInfo.imeOptions and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
+      log.info { "Performing IME editor action (explicit): $imeAction for package: ${editorInfo.packageName}" }
+      ic.performEditorAction(imeAction)
+    } else {
+      log.warn { "EditorInfo is null, inserting newline as fallback" }
+      ic.commitText("\n", 1)
+      service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+    }
+  }
+
+val editActionHandleReturn: VirtualKeyboardActionCallable =
+  { ic, et, specialKey, mods, event, editHistory, service ->
+    val editorInfo = service.editorInfo
+    if (editorInfo != null) {
+      val imeAction = editorInfo.imeOptions and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
+
+      // Check if the app explicitly wants Return to insert newline instead of action
+      val noEnterAction = (editorInfo.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0
+
+      if (noEnterAction) {
+        log.info { "Handle Return: IME_FLAG_NO_ENTER_ACTION set for ${editorInfo.packageName}, inserting newline" }
+        ic.commitText("\n", 1)
+        service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+      } else {
+        when (imeAction) {
+          android.view.inputmethod.EditorInfo.IME_ACTION_GO,
+          android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH,
+          android.view.inputmethod.EditorInfo.IME_ACTION_SEND,
+          android.view.inputmethod.EditorInfo.IME_ACTION_DONE,
+          android.view.inputmethod.EditorInfo.IME_ACTION_NEXT,
+          android.view.inputmethod.EditorInfo.IME_ACTION_PREVIOUS -> {
+            log.info { "Handle Return: Performing IME action $imeAction for ${editorInfo.packageName}" }
+            ic.performEditorAction(imeAction)
+          }
+          else -> {
+            log.info { "Handle Return: No specific action for ${editorInfo.packageName}, inserting newline" }
+            ic.commitText("\n", 1)
+            service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+          }
+        }
+      }
+    } else {
+      log.warn { "EditorInfo is null, inserting newline as fallback" }
+      ic.commitText("\n", 1)
+      service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+    }
+  }
+
 val editActionUnknown: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
     throw Error("Unknown action called")
@@ -218,7 +277,10 @@ enum class VirtualKeyboardAction(val action: VirtualKeyboardActionCallable) {
   BackSpace(editActionBackSpace),
   Delete(editActionDelete),
   Undo(editActionUndo),
-  Redo(editActionRedo);
+  Redo(editActionRedo),
+  InsertNewline(editActionInsertNewline),
+  PerformEditorAction(editActionPerformEditorAction),
+  HandleReturn(editActionHandleReturn);
 
   val actionId: Int = ordinal
 
