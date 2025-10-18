@@ -75,9 +75,22 @@
   },
   {
     "actionId": 11,
+    "label": "Insert Newline",
+    "defaultShortcutKeys": [
+      "Shift+Return"
+    ]
+  },
+  {
+    "actionId": 12,
     "label": "Perform Editor Action",
     "defaultShortcutKeys": [
-      "Control+Return",
+      "Control+Return"
+    ]
+  },
+  {
+    "actionId": 13,
+    "label": "Smart Return",
+    "defaultShortcutKeys": [
       "Return"
     ]
   }

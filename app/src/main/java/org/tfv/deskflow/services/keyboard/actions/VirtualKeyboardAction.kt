@@ -202,7 +202,28 @@ val editActionRedo: VirtualKeyboardActionCallable =
     }
   }
 
+val editActionInsertNewline: VirtualKeyboardActionCallable =
+  { ic, et, specialKey, mods, event, editHistory, service ->
+    log.debug { "Inserting newline (explicit)" }
+    ic.commitText("\n", 1)
+    service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+  }
+
 val editActionPerformEditorAction: VirtualKeyboardActionCallable =
+  { ic, et, specialKey, mods, event, editHistory, service ->
+    val editorInfo = service.editorInfo
+    if (editorInfo != null) {
+      val imeAction = editorInfo.imeOptions and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
+      log.info { "Performing IME editor action (explicit): $imeAction for package: ${editorInfo.packageName}" }
+      ic.performEditorAction(imeAction)
+    } else {
+      log.warn { "EditorInfo is null, inserting newline as fallback" }
+      ic.commitText("\n", 1)
+      service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+    }
+  }
+
+val editActionSmartReturn: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
     val editorInfo = service.editorInfo
     if (editorInfo != null) {
@@ -212,22 +233,21 @@ val editActionPerformEditorAction: VirtualKeyboardActionCallable =
       // Check if this is a multi-line text field
       val isMultiLine = (inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0
 
-      // For multi-line fields, always insert newline regardless of IME action
-      // For single-line fields, perform the IME action if it's meaningful
+      // Auto-guess: multi-line -> newline, single-line with action -> perform action
       if (isMultiLine) {
-        log.info { "Multi-line field detected for ${editorInfo.packageName}, inserting newline" }
+        log.info { "Smart Return: Multi-line field detected for ${editorInfo.packageName}, inserting newline" }
         ic.commitText("\n", 1)
         service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
       } else {
         when (imeAction) {
           android.view.inputmethod.EditorInfo.IME_ACTION_NONE,
           android.view.inputmethod.EditorInfo.IME_ACTION_UNSPECIFIED -> {
-            log.info { "Single-line field with IME action NONE/UNSPECIFIED for ${editorInfo.packageName}, inserting newline" }
+            log.info { "Smart Return: Single-line field with IME action NONE/UNSPECIFIED for ${editorInfo.packageName}, inserting newline" }
             ic.commitText("\n", 1)
             service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
           }
           else -> {
-            log.info { "Performing IME editor action: $imeAction for package: ${editorInfo.packageName}" }
+            log.info { "Smart Return: Performing IME editor action: $imeAction for package: ${editorInfo.packageName}" }
             ic.performEditorAction(imeAction)
           }
         }
@@ -256,7 +276,9 @@ enum class VirtualKeyboardAction(val action: VirtualKeyboardActionCallable) {
   Delete(editActionDelete),
   Undo(editActionUndo),
   Redo(editActionRedo),
-  PerformEditorAction(editActionPerformEditorAction);
+  InsertNewline(editActionInsertNewline),
+  PerformEditorAction(editActionPerformEditorAction),
+  SmartReturn(editActionSmartReturn);
 
   val actionId: Int = ordinal
 
