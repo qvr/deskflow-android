@@ -367,6 +367,13 @@ class VirtualKeyboardService : InputMethodService() {
     keyboardViewLifecycleOwner.onPause()
   }
 
+  override fun onComputeInsets(outInsets: Insets?) {
+    super.onComputeInsets(outInsets)
+    if (outInsets != null) {
+      outInsets.contentTopInsets = outInsets.visibleTopInsets
+    }
+  }
+
   override fun onCreateInputView(): View {
     log.debug { "onCreateInputView" }
     val win = window.window ?: return super.onCreateInputView()
