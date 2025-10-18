@@ -72,5 +72,13 @@
       "Meta+Shift+z",
       "Super+Shift+z"
     ]
+  },
+  {
+    "actionId": 11,
+    "label": "Perform Editor Action",
+    "defaultShortcutKeys": [
+      "Control+Return",
+      "Return"
+    ]
   }
 ]

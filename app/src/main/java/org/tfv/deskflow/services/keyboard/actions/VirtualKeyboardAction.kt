@@ -202,6 +202,43 @@ val editActionRedo: VirtualKeyboardActionCallable =
     }
   }
 
+val editActionPerformEditorAction: VirtualKeyboardActionCallable =
+  { ic, et, specialKey, mods, event, editHistory, service ->
+    val editorInfo = service.editorInfo
+    if (editorInfo != null) {
+      val imeAction = editorInfo.imeOptions and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
+      val inputType = editorInfo.inputType
+
+      // Check if this is a multi-line text field
+      val isMultiLine = (inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0
+
+      // For multi-line fields, always insert newline regardless of IME action
+      // For single-line fields, perform the IME action if it's meaningful
+      if (isMultiLine) {
+        log.info { "Multi-line field detected for ${editorInfo.packageName}, inserting newline" }
+        ic.commitText("\n", 1)
+        service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+      } else {
+        when (imeAction) {
+          android.view.inputmethod.EditorInfo.IME_ACTION_NONE,
+          android.view.inputmethod.EditorInfo.IME_ACTION_UNSPECIFIED -> {
+            log.info { "Single-line field with IME action NONE/UNSPECIFIED for ${editorInfo.packageName}, inserting newline" }
+            ic.commitText("\n", 1)
+            service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+          }
+          else -> {
+            log.info { "Performing IME editor action: $imeAction for package: ${editorInfo.packageName}" }
+            ic.performEditorAction(imeAction)
+          }
+        }
+      }
+    } else {
+      log.warn { "EditorInfo is null, inserting newline as fallback" }
+      ic.commitText("\n", 1)
+      service.saveEditHistory(service.editorInfo, service.currentExtractedTest())
+    }
+  }
+
 val editActionUnknown: VirtualKeyboardActionCallable =
   { ic, et, specialKey, mods, event, editHistory, service ->
     throw Error("Unknown action called")
@@ -218,7 +255,8 @@ enum class VirtualKeyboardAction(val action: VirtualKeyboardActionCallable) {
   BackSpace(editActionBackSpace),
   Delete(editActionDelete),
   Undo(editActionUndo),
-  Redo(editActionRedo);
+  Redo(editActionRedo),
+  PerformEditorAction(editActionPerformEditorAction);
 
   val actionId: Int = ordinal
 
