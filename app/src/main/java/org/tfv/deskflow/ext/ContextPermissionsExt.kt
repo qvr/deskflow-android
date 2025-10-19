@@ -135,6 +135,9 @@ fun Context.observeAccessibilityStatus(
 val Context.SERVICE_CONNECTED_ACTION: String
   get() = "${packageName}.SERVICE_CONNECTED"
 
+val Context.SERVICE_DISCONNECTED_ACTION: String
+  get() = "${packageName}.SERVICE_DISCONNECTED"
+
 fun <T : Service> Context.registerForServiceConnectionEvents(
   serviceClazz: KClass<T>,
   onServiceConnected: (serviceClazz: KClass<T>) -> Unit,
@@ -191,6 +194,53 @@ inline fun <reified T : Service> Context.sendServiceConnectionEvent() {
       putExtra("serviceClazz", serviceClazz.java.name)
     }
   sendBroadcast(intent)
+}
+
+inline fun <reified T : Service> Context.sendServiceDisconnectionEvent() {
+  val log = KLoggingManager.logger<T>()
+
+  val serviceClazz = T::class
+  log.debug {
+    "sendServiceDisconnectionEvent($SERVICE_DISCONNECTED_ACTION) ${serviceClazz.java.simpleName}"
+  }
+  val intent =
+    Intent(SERVICE_DISCONNECTED_ACTION).apply {
+      putExtra("serviceClazz", serviceClazz.java.name)
+    }
+  sendBroadcast(intent)
+}
+
+fun <T : Service> Context.registerForServiceDisconnectionEvents(
+  serviceClazz: KClass<T>,
+  onServiceDisconnected: (serviceClazz: KClass<T>) -> Unit,
+): AutoCloseable {
+  return object : AbstractDisposable() {
+    private val filter = IntentFilter(SERVICE_DISCONNECTED_ACTION)
+    private val serviceClazzName = serviceClazz.java.name
+    private val receiver =
+      object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+          if (isDisposed) return
+
+          val intentServiceClazzName = intent.getStringExtra("serviceClazz")
+          if (intentServiceClazzName != serviceClazzName) {
+            log.debug {
+              "$intentServiceClazzName is not $serviceClazzName, not firing"
+            }
+            return
+          }
+          onServiceDisconnected(serviceClazz)
+        }
+      }
+
+    init {
+      registerReceiver(receiver, filter, RECEIVER_EXPORTED)
+    }
+
+    override fun onDispose() {
+      unregisterReceiver(receiver)
+    }
+  }
 }
 
 const val DESKFLOW_PACKAGE = "org.tfv.deskflow"

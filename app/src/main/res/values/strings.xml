@@ -43,6 +43,10 @@
     <string name="permission_dialog_dismissed_message">In order to properly use Deskflow for Android, you must enable these permissions.</string>
     <string name="permission_dialog_buttons_open_settings">Open Settings</string>
     <string name="permission_dialog_accessibility_service_message">Accessibility service permissions are required in order to create a virtual mouse pointer, respond to keyboard shortcuts (like opening the app switcher) and integrating editor controls. If it\'s not enabled, Deskflow can not function.</string>
+    <string name="accessibility_restart_dialog_title">Accessibility Service Disconnected</string>
+    <string name="accessibility_restart_dialog_message">The accessibility service has stopped working. This can happen after app updates or system changes. Please toggle it off and back on in the accessibility settings to restart it.</string>
+    <string name="accessibility_restart_dialog_restart">Open Settings</string>
+    <string name="accessibility_restart_dialog_dismiss">Dismiss</string>
     <string name="settings_screen_instructions">Enter server connectivity information for the Deskflow/Deskflow server, which will control the input of this device.</string>
     <string name="settings_screen_title"><![CDATA[Connect Keyboard & Mouse]]></string>
     <string name="button_cancel">Cancel</string>
