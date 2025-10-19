@@ -1116,6 +1116,53 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /**
+   * Reinitialize the mouse pointer view and window manager.
+   * Called when we detect that the window manager token is invalid (e.g., after app update).
+   */
+  private fun reinitializeMousePointer() {
+    log.info { "Reinitializing mouse pointer after window manager error" }
+
+    try {
+      // Try to remove old view if it exists (may fail, that's ok)
+      if (mousePointerVisible) {
+        try {
+          windowManager.removeView(mousePointerView)
+        } catch (e: Exception) {
+          log.debug { "Could not remove old mouse pointer view: ${e.message}" }
+        }
+        mousePointerVisible = false
+      }
+
+      // Recreate the view and window manager
+      mousePointerView = View.inflate(baseContext, R.layout.mouse_pointer, null)
+      windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+      // Recreate layout params (reuse existing position)
+      val oldX = mousePointerLayout.x
+      val oldY = mousePointerLayout.y
+
+      mousePointerLayout = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.WRAP_CONTENT,
+        WindowManager.LayoutParams.WRAP_CONTENT,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+          WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+          WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        PixelFormat.TRANSLUCENT,
+      )
+
+      mousePointerLayout.layoutInDisplayCutoutMode = LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+      mousePointerLayout.gravity = Gravity.TOP or Gravity.LEFT
+      mousePointerLayout.x = oldX
+      mousePointerLayout.y = oldY
+
+      log.info { "Mouse pointer reinitialized successfully" }
+    } catch (err: Exception) {
+      log.error(err) { "Error reinitializing mouse pointer" }
+    }
+  }
+
+  /**
    * Show the mouse pointer overlay.
    * Safe to call multiple times - will only add view if not already visible.
    */
@@ -1134,8 +1181,22 @@ class GlobalInputService : AccessibilityService() {
       windowManager.addView(mousePointerView, mousePointerLayout)
       mousePointerVisible = true
       log.info { "Mouse pointer shown" }
+    } catch (err: android.view.WindowManager.BadTokenException) {
+      log.error(err) { "BadTokenException when showing mouse pointer - window manager token invalid, attempting reinitialize" }
+      mousePointerVisible = false
+
+      // Try to reinitialize and show again
+      reinitializeMousePointer()
+      try {
+        windowManager.addView(mousePointerView, mousePointerLayout)
+        mousePointerVisible = true
+        log.info { "Mouse pointer shown successfully after reinitialization" }
+      } catch (retryErr: Exception) {
+        log.error(retryErr) { "Error showing mouse pointer after reinitialization" }
+      }
     } catch (err: Exception) {
       log.error(err) { "Error showing mouse pointer" }
+      mousePointerVisible = false
     }
   }
 
@@ -1155,6 +1216,8 @@ class GlobalInputService : AccessibilityService() {
       log.info { "Mouse pointer hidden" }
     } catch (err: Exception) {
       log.error(err) { "Error hiding mouse pointer" }
+      // Mark as not visible even if removal failed (view may already be detached)
+      mousePointerVisible = false
     }
   }
 
