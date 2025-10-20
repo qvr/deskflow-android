@@ -133,12 +133,14 @@ fun SettingsScreen(
       var address by remember(screenValue) { mutableStateOf(screenValue.server.address) }
       var port by remember(screenValue) { mutableIntStateOf(screenValue.server.port) }
       var useTls by remember(screenValue) { mutableStateOf(screenValue.server.useTls) }
+      var disconnectOnScreenOff by remember(screenValue) { mutableStateOf(screenValue.disconnectOnScreenOff) }
       var isDirty by remember(screenValue) { mutableStateOf(false) }
 
       val saveChanges ={
         onChange(
           ScreenState().apply {
             name = screenName
+            this.disconnectOnScreenOff = disconnectOnScreenOff
             server =
               ServerState().apply {
                 this.address = address
@@ -356,6 +358,35 @@ fun SettingsScreen(
                 )
               }
             }
+
+            // Disconnect on screen off toggle
+            Row(
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
+              modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            ) {
+              Column(
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+              ) {
+                Text(
+                  text = stringResource(R.string.settings_screen_disconnect_on_screen_off_label),
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                  text = stringResource(R.string.settings_screen_disconnect_on_screen_off_description),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+              Switch(
+                checked = disconnectOnScreenOff,
+                onCheckedChange = {
+                  disconnectOnScreenOff = it
+                  isDirty = true
+                },
+              )
+            }
           }
         }
       }
@@ -387,6 +418,7 @@ fun SettingsScreenPreviewSuccess() {
       mutableStateOf(
         ScreenState().apply {
           name = "AndroidScreen"
+          disconnectOnScreenOff = false
           server =
             ServerState().apply {
               address = "localhost"

@@ -63,6 +63,7 @@ fun ConnectionStateDefaults(context: Context): ConnectionState {
             isActive = false
             width = screenSize.px.width
             height = screenSize.px.height
+            disconnectOnScreenOff = false
             server = ServerState().apply {
                 address = SERVER_DEFAULT_ADDRESS
                 port = SERVER_DEFAULT_PORT
@@ -77,7 +78,8 @@ fun ScreenState.copy(
     isActive: Boolean = this.isActive,
     server: ServerState = this.server,
     width: Int = this.width,
-    height: Int = this.height
+    height: Int = this.height,
+    disconnectOnScreenOff: Boolean = this.disconnectOnScreenOff
 ): ScreenState {
     return ScreenState().apply {
         this.name = name
@@ -85,6 +87,7 @@ fun ScreenState.copy(
         this.server = server
         this.width = width
         this.height = height
+        this.disconnectOnScreenOff = disconnectOnScreenOff
     }
 }
 
