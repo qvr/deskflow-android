@@ -22,6 +22,8 @@ message AppPrefs {
 
     ServerConfig server = 5;
 
+    bool disconnect_on_screen_off = 6;
+
   }
 
   message ActionsConfig {

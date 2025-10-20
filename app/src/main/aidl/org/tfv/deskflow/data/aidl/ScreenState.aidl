@@ -9,4 +9,5 @@ parcelable ScreenState {
 	boolean isActive;
 	int width;
 	int height;
+	boolean disconnectOnScreenOff;
 }

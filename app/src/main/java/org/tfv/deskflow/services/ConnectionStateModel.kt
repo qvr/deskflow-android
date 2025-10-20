@@ -65,8 +65,9 @@ class ConnectionStateModel(private val context: Context) {
         currentServer.address == appPrefs.screen.server.address &&
         currentServer.port == appPrefs.screen.server.port &&
         currentServer.useTls == appPrefs.screen.server.useTls &&
-        currentScreen.name == appPrefs.screen.name) {
-        
+        currentScreen.name == appPrefs.screen.name &&
+        currentScreen.disconnectOnScreenOff == appPrefs.screen.disconnectOnScreenOff) {
+
         log.debug { "AppPrefs are unchanged" }
         return@updateState currentState
       }
@@ -77,6 +78,7 @@ class ConnectionStateModel(private val context: Context) {
             name = appPrefs.screen.name,
             width = screenSize.px.width,
             height = screenSize.px.height,
+            disconnectOnScreenOff = appPrefs.screen.disconnectOnScreenOff,
             server =
               ServerState().apply {
                 address = appPrefs.screen.server.address

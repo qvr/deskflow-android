@@ -26,6 +26,7 @@ package org.tfv.deskflow.services
 
 import android.app.Service
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.os.IBinder
 import android.os.RemoteCallbackList
@@ -38,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -70,6 +72,7 @@ import org.tfv.deskflow.ext.copy
 import org.tfv.deskflow.ext.toServerTarget
 import org.tfv.deskflow.logging.AndroidForwardingLogger
 import org.tfv.deskflow.logging.LogRecordEvent
+import org.tfv.deskflow.receivers.ScreenStateReceiver
 
 class ConnectionService : Service() {
   companion object {
@@ -98,6 +101,18 @@ class ConnectionService : Service() {
 
   /** The connection state model */
   private lateinit var connectionStateModel: ConnectionStateModel
+
+  /** Screen state receiver for monitoring screen on/off events */
+  private var screenStateReceiver: ScreenStateReceiver? = null
+
+  /** Flag to track if we should reconnect when screen turns back on */
+  private var shouldReconnectOnScreenOn = false
+
+  /** Flag to track if disconnect on screen off is enabled */
+  private var disconnectOnScreenOff = false
+
+  /** Job for delayed disconnect on screen off */
+  private var screenOffDisconnectJob: Job? = null
 
   private val connectionCallbacks =
     RemoteCallbackList<IConnectionServiceCallback>()
@@ -199,6 +214,7 @@ class ConnectionService : Service() {
               .apply {
                 screen = screenConfig {
                   name = screenState.name
+                  disconnectOnScreenOff = screenState.disconnectOnScreenOff
                   server = serverConfig {
                     address = screenState.server.address
                     port = screenState.server.port
@@ -279,6 +295,92 @@ class ConnectionService : Service() {
     }
   }
 
+  /**
+   * Register the screen state receiver to monitor screen on/off events.
+   */
+  private fun registerScreenStateReceiver() {
+    if (screenStateReceiver != null) {
+      return // Already registered
+    }
+
+    log.info { "Registering screen state receiver" }
+
+    screenStateReceiver = ScreenStateReceiver(
+      onScreenOn = { handleScreenOn() },
+      onScreenOff = { handleScreenOff() }
+    )
+
+    val filter = IntentFilter().apply {
+      addAction(Intent.ACTION_SCREEN_ON)
+      addAction(Intent.ACTION_SCREEN_OFF)
+    }
+
+    registerReceiver(screenStateReceiver, filter)
+  }
+
+  /**
+   * Unregister the screen state receiver.
+   */
+  private fun unregisterScreenStateReceiver() {
+    screenStateReceiver?.let {
+      log.info { "Unregistering screen state receiver" }
+      try {
+        unregisterReceiver(it)
+      } catch (e: IllegalArgumentException) {
+        log.warn(e) { "Screen state receiver was not registered" }
+      }
+      screenStateReceiver = null
+    }
+  }
+
+  /**
+   * Handle screen turning on.
+   * Reconnect if we were previously connected before screen turned off.
+   * Cancel any pending disconnect job.
+   */
+  private fun handleScreenOn() {
+    log.info { "Screen turned ON - shouldReconnect=$shouldReconnectOnScreenOn" }
+
+    // Cancel any pending disconnect job if screen turned back on
+    screenOffDisconnectJob?.cancel()
+    screenOffDisconnectJob = null
+
+    if (shouldReconnectOnScreenOn) {
+      log.info { "Reconnecting after screen turned on" }
+      connectionStateModel.updateState { it.copy(isEnabled = true) }
+      shouldReconnectOnScreenOn = false
+    }
+  }
+
+  /**
+   * Handle screen turning off.
+   * Disconnect if the feature is enabled and we're currently connected,
+   * with a small delay to allow for wakeup with for example mouse movement.
+   */
+  private fun handleScreenOff() {
+    val state = connectionStateModel.state.value
+    log.info { "Screen turned OFF - isEnabled=${state.isEnabled}, isConnected=${state.isConnected}" }
+
+    if (disconnectOnScreenOff && state.isEnabled) {
+      log.info { "Screen off - will disconnect in 10 seconds" }
+
+      // Cancel any existing pending disconnect job
+      screenOffDisconnectJob?.cancel()
+
+      // Schedule disconnect with a delay
+      screenOffDisconnectJob = serviceScope.launch {
+        try {
+          delay(10000)
+          log.info { "Disconnecting due to screen off" }
+          shouldReconnectOnScreenOn = true
+          connectionStateModel.updateState { it.copy(isEnabled = false) }
+        } catch (e: Exception) {
+          log.debug(e) { "Screen off disconnect job cancelled or failed" }
+        }
+      }
+    }
+  }
+
   /** Check if the client is connected and update if necessary. */
   private suspend fun connectionStateUpdateJobRunnable() {
     connectionStateModel.state.collect { state ->
@@ -313,6 +415,24 @@ class ConnectionService : Service() {
         "AppPrefs changed: forwardingLevel=${AndroidForwardingLogger.forwardingLevel}"
       }
     }
+
+    // Handle disconnect on screen off setting
+    appPrefs.screen?.let { screen ->
+      val newDisconnectOnScreenOff = screen.disconnectOnScreenOff
+
+      if (newDisconnectOnScreenOff != disconnectOnScreenOff) {
+        log.info { "Disconnect on screen off changed: $disconnectOnScreenOff -> $newDisconnectOnScreenOff" }
+        disconnectOnScreenOff = newDisconnectOnScreenOff
+
+        if (disconnectOnScreenOff) {
+          registerScreenStateReceiver()
+        } else {
+          unregisterScreenStateReceiver()
+          shouldReconnectOnScreenOn = false
+        }
+      }
+    }
+
     connectionStateModel.updateScreenFromAppPrefs(appPrefs)
   }
 
@@ -370,6 +490,13 @@ class ConnectionService : Service() {
 
   override fun onDestroy() {
     ClientEventBus.off(this::onClientEvent)
+
+    // Unregister screen state receiver if registered
+    unregisterScreenStateReceiver()
+
+    // Cancel any pending disconnect job
+    screenOffDisconnectJob?.cancel()
+    screenOffDisconnectJob = null
 
     synchronized(broadcastLock) {
       broadcastExecutor.shutdownNow()
