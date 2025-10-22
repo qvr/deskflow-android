@@ -105,6 +105,12 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /**
+   * Manager for keeping the screen on during mouse movement via wakelock.
+   * The wakelock is throttled to refresh every 5 seconds during continued movement.
+   */
+  private lateinit var screenWakelockManager: ScreenWakelockManager
+
+  /**
    * Flow to observe if the home screen is currently active. This is used to
    * determine if the current screen is the home screen.
    * > Example: Used for checking if the user is on the home screen in the
@@ -387,6 +393,9 @@ class GlobalInputService : AccessibilityService() {
 
     createNotificationChannel()
 
+    // Initialize the screen wakelock manager for keeping screen on during mouse movement
+    screenWakelockManager = ScreenWakelockManager(this, autoReleaseTimeoutMs = 5000L)
+
     keyboardManager = GlobalKeyboardManager(this)
     serviceScope.launch {
       keyboardManager.actionFlow.collect { action ->
@@ -565,6 +574,7 @@ class GlobalInputService : AccessibilityService() {
     serviceScope.cancel()
     serviceClient.unbind()
     hideMousePointer()  // Use the safe hide method instead of direct removeView
+    screenWakelockManager.cleanup()  // Clean up wakelock resources
     super.onDestroy()
   }
 
@@ -915,6 +925,9 @@ class GlobalInputService : AccessibilityService() {
         val currentY = event.y
         moveMousePointer(currentX, currentY)
 
+        // Keep the screen on during mouse movement
+        screenWakelockManager.onMouseMovement()
+
         // Check if we're in a drag operation
         mouseButtonDown?.let { buttonState ->
           val dragState = activeDragState
@@ -947,6 +960,9 @@ class GlobalInputService : AccessibilityService() {
         val newX = mousePointerLayout.x + event.x
         val newY = mousePointerLayout.y + event.y
         moveMousePointer(newX, newY)
+
+        // Keep the screen on during mouse movement
+        screenWakelockManager.onMouseMovement()
 
         // Check if we're in a drag operation
         mouseButtonDown?.let { buttonState ->
@@ -1313,6 +1329,7 @@ class GlobalInputService : AccessibilityService() {
     try {
       windowManager.addView(mousePointerView, mousePointerLayout)
       mousePointerVisible = true
+      screenWakelockManager.onMouseMovement()
       log.info { "Mouse pointer shown" }
     } catch (err: Exception) {
       log.error(err) { "Error showing mouse pointer" }
