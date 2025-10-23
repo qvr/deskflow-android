@@ -198,6 +198,10 @@ class GlobalInputService : AccessibilityService() {
 
   /**
    * Tracks the active drag gesture state. When non-null, a drag is in progress.
+   * For multi-touch support, lastStrokes contains one stroke per finger:
+   * - Index 0: Primary finger (main touch point)
+   * - Index 1 (if present): Secondary finger (offset to the right)
+   * - Index 2 (if present): Tertiary finger (further right)
    */
   private data class DragState(
     val startX: Float,
@@ -206,9 +210,10 @@ class GlobalInputService : AccessibilityService() {
     var lastDispatchedY: Float, // Position where last stroke ended
     var targetX: Float,          // Target position for next stroke
     var targetY: Float,          // Target position for next stroke
-    var lastStroke: StrokeDescription? = null,
+    var lastStrokes: List<StrokeDescription> = emptyList(), // List of stroke descriptions for multi-touch
     var isEnding: Boolean = false, // Flag to indicate drag should end after current gesture
-    var initialHoldDuration: Long = 0 // Duration of initial hold before drag starts (0 = speculative hold)
+    var initialHoldDuration: Long = 0, // Duration of initial hold before drag starts (0 = speculative hold)
+    var fingerCount: Int = 1 // Number of fingers in multi-touch (1-3)
   )
 
   /**
@@ -226,6 +231,18 @@ class GlobalInputService : AccessibilityService() {
    * If mouse moves more than this distance while button is down, it's a drag.
    */
   private val dragThreshold = 10
+
+  /**
+   * Offsets for multi-touch fingers relative to the primary finger position.
+   * Index 0 is always at (0, 0) - the primary finger.
+   * Index 1 (2-finger touch): offset to the right by this amount
+   * Index 2 (3-finger touch): further right by this amount
+   */
+  private val multiTouchFingerOffsets = listOf(
+    Pair(0, 0),      // Primary finger (index 0)
+    Pair(100, 0),     // Secondary finger (index 1) - 100 pixels right
+    Pair(200, 0)      // Tertiary finger (index 2) - 200 pixels right
+  )
 
   private val keyboardWasOpen = AtomicBoolean(false)
 
@@ -591,26 +608,44 @@ class GlobalInputService : AccessibilityService() {
    * The gesture completes immediately (due to willContinue=true), but the drag state
    * remains active, waiting for either mouse movement (convert to drag) or button release (end cleanly).
    *
+   * Supports multi-touch by creating multiple stroke descriptions for simulated fingers.
+   * The number of fingers is determined by the button ID (can be extended to support multi-touch).
+   *
    * @param x The X coordinate where to start the hold
    * @param y The Y coordinate where to start the hold
+   * @param fingerCount Number of fingers to simulate (1, 2, or 3). Defaults to 1.
    */
-  private fun startSpeculativeHold(x: Float, y: Float) {
+  private fun startSpeculativeHold(x: Float, y: Float, fingerCount: Int = 1) {
     // If there's already an active drag, ignore this
     if (activeDragState != null) {
       log.warn { "Speculative hold ignored - drag already active" }
       return
     }
 
-    log.info { "Starting speculative hold at [$x, $y]" }
+    val clampedFingerCount = fingerCount.coerceIn(1, 3)
+
+    log.info { "Starting speculative hold at [$x, $y] with $clampedFingerCount finger(s)" }
 
     dragGestureInProgress = true
 
-    // Create touch-down with willContinue=true
+    // Create touch-down with willContinue=true for each finger
     // Note: With willContinue=true, this will complete almost immediately regardless of duration
     // The drag state remains active until mouse moves (-> drag) or button up (-> release)
-    val path = Path().apply { moveTo(x, y) }
-    val stroke = StrokeDescription(path, 0, 100, true) // duration doesn't matter with willContinue=true
-    val gesture = GestureDescription.Builder().addStroke(stroke).build()
+    val strokes = mutableListOf<StrokeDescription>()
+    val gestureBuilder = GestureDescription.Builder()
+
+    for (fingerIndex in 0 until clampedFingerCount) {
+      val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
+      val fingerX = x + offsetX
+      val fingerY = y + offsetY
+
+      val path = Path().apply { moveTo(fingerX, fingerY) }
+      val stroke = StrokeDescription(path, (fingerIndex * 5).toLong(), 100, true) // duration doesn't matter with willContinue=true
+      strokes.add(stroke)
+      gestureBuilder.addStroke(stroke)
+    }
+
+    val gesture = gestureBuilder.build()
 
     // Create drag state to track this speculative hold
     val dragState = DragState(
@@ -619,15 +654,16 @@ class GlobalInputService : AccessibilityService() {
       lastDispatchedX = x,
       lastDispatchedY = y,
       targetX = x,
-      targetY = x,
-      lastStroke = stroke,
-      initialHoldDuration = 0 // Will be set when/if converted to actual drag
+      targetY = y,
+      lastStrokes = strokes,
+      initialHoldDuration = 0, // Will be set when/if converted to actual drag
+      fingerCount = clampedFingerCount
     )
     activeDragState = dragState
 
     dispatchGesture(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
-        log.info { "Speculative hold gesture dispatched successfully" }
+        log.info { "Speculative hold gesture dispatched successfully ($clampedFingerCount finger(s))" }
         dragGestureInProgress = false
         // With willContinue=true, this will complete almost immediately (~20ms)
         // The drag state remains active - we're waiting for either:
@@ -673,6 +709,7 @@ class GlobalInputService : AccessibilityService() {
   /**
    * Dispatch a drag continuation stroke from the last completed position to the current target position.
    * Must only be called when no gesture is in progress (dragGestureInProgress == false).
+   * Handles multi-touch by continuing each finger's stroke independently with their relative offsets.
    */
   private fun dispatchDragContinuation() {
     val dragState = activeDragState ?: return
@@ -690,9 +727,9 @@ class GlobalInputService : AccessibilityService() {
       return
     }
 
-    val lastStroke = dragState.lastStroke
-    if (lastStroke == null) {
-      log.warn { "No last stroke to continue from" }
+    val lastStrokes = dragState.lastStrokes
+    if (lastStrokes.isEmpty()) {
+      log.warn { "No last strokes to continue from" }
       return
     }
 
@@ -701,23 +738,38 @@ class GlobalInputService : AccessibilityService() {
     val toX = dragState.targetX
     val toY = dragState.targetY
 
-    log.info { "Dispatching drag continuation from [$fromX, $fromY] to [$toX, $toY]" }
+    log.info { "Dispatching drag continuation from [$fromX, $fromY] to [$toX, $toY] (${lastStrokes.size} finger(s))" }
 
     dragGestureInProgress = true
 
-    val path = Path().apply {
-      moveTo(fromX, fromY)
-      lineTo(toX, toY)
+    // Continue each finger's stroke independently with their relative offsets
+    val continuedStrokes = mutableListOf<StrokeDescription>()
+    val gestureBuilder = GestureDescription.Builder()
+
+    for ((fingerIndex, lastStroke) in lastStrokes.withIndex()) {
+      val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
+      val fromFingerX = fromX + offsetX
+      val fromFingerY = fromY + offsetY
+      val toFingerX = toX + offsetX
+      val toFingerY = toY + offsetY
+
+      val path = Path().apply {
+        moveTo(fromFingerX, fromFingerY)
+        lineTo(toFingerX, toFingerY)
+      }
+
+      // Continue with 50ms duration, startTime=0 for immediate movement
+      // Note: The hold has already been provided by the speculative hold gesture
+      val stroke = lastStroke.continueStroke(path, 0, 50, true) // willContinue = true
+      continuedStrokes.add(stroke)
+      gestureBuilder.addStroke(stroke)
     }
 
-    // Continue with 50ms duration, startTime=0 for immediate movement
-    // Note: The hold has already been provided by the speculative hold gesture
-    val stroke = lastStroke.continueStroke(path, 0, 50, true) // willContinue = true
-    dragState.lastStroke = stroke
+    dragState.lastStrokes = continuedStrokes
     dragState.lastDispatchedX = toX
     dragState.lastDispatchedY = toY
 
-    val gesture = GestureDescription.Builder().addStroke(stroke).build()
+    val gesture = gestureBuilder.build()
 
     dispatchGesture(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
@@ -766,13 +818,14 @@ class GlobalInputService : AccessibilityService() {
 
   /**
    * Dispatch the final drag stroke that releases the touch.
+   * Handles multi-touch by ending each finger's stroke independently.
    */
   private fun dispatchFinalStroke() {
     val dragState = activeDragState ?: return
 
-    val lastStroke = dragState.lastStroke
-    if (lastStroke == null) {
-      log.warn { "dispatchFinalStroke called but no last stroke" }
+    val lastStrokes = dragState.lastStrokes
+    if (lastStrokes.isEmpty()) {
+      log.warn { "dispatchFinalStroke called but no last strokes" }
       activeDragState = null
       return
     }
@@ -784,21 +837,36 @@ class GlobalInputService : AccessibilityService() {
     val isSpeculativeHoldClick = dragState.initialHoldDuration == 0L
 
     if (isSpeculativeHoldClick) {
-      log.info { "Ending speculative hold as click at [$endX, $endY]" }
+      log.info { "Ending speculative hold as click at [$endX, $endY] (${lastStrokes.size} finger(s))" }
     } else {
-      log.info { "Ending drag gesture from [${dragState.lastDispatchedX}, ${dragState.lastDispatchedY}] to [$endX, $endY]" }
+      log.info { "Ending drag gesture from [${dragState.lastDispatchedX}, ${dragState.lastDispatchedY}] to [$endX, $endY] (${lastStrokes.size} finger(s))" }
     }
 
     dragGestureInProgress = true
 
-    val path = Path().apply {
-      moveTo(dragState.lastDispatchedX, dragState.lastDispatchedY)
-      lineTo(endX, endY)
+    // End each finger's stroke independently with their relative offsets
+    val finalStrokes = mutableListOf<StrokeDescription>()
+    val gestureBuilder = GestureDescription.Builder()
+
+    for ((fingerIndex, lastStroke) in lastStrokes.withIndex()) {
+      val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
+      val fromFingerX = dragState.lastDispatchedX + offsetX
+      val fromFingerY = dragState.lastDispatchedY + offsetY
+      val toFingerX = endX + offsetX
+      val toFingerY = endY + offsetY
+
+      val path = Path().apply {
+        moveTo(fromFingerX, fromFingerY)
+        lineTo(toFingerX, toFingerY)
+      }
+
+      // Final stroke: short duration, willContinue = false to release touch
+      val stroke = lastStroke.continueStroke(path, 0, 10, false)
+      finalStrokes.add(stroke)
+      gestureBuilder.addStroke(stroke)
     }
 
-    // Final stroke: short duration, willContinue = false to release touch
-    val stroke = lastStroke.continueStroke(path, 0, 10, false)
-    val gesture = GestureDescription.Builder().addStroke(stroke).build()
+    val gesture = gestureBuilder.build()
 
     dispatchGesture(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
@@ -931,6 +999,16 @@ class GlobalInputService : AccessibilityService() {
         if (event.id.toInt() == 1) {
           startSpeculativeHold(mousePointerLayout.x.toFloat(), mousePointerLayout.y.toFloat())
         }
+
+        // For middle button (id=2), start a 3-finger speculative hold gesture immediately
+        if (event.id.toInt() == 2) {
+          startSpeculativeHold(mousePointerLayout.x.toFloat(), mousePointerLayout.y.toFloat(), 3)
+        }
+
+        // For right button (id=3), start a 2-finger speculative hold gesture immediately
+        if (event.id.toInt() == 3) {
+          startSpeculativeHold(mousePointerLayout.x.toFloat(), mousePointerLayout.y.toFloat(), 2)
+        }
       }
 
       MouseEvent.Type.Up -> {
@@ -979,25 +1057,8 @@ class GlobalInputService : AccessibilityService() {
         // Perform different gestures based on button
         // Button mapping based on Deskflow protocol:
         // 1 = Left button, 2 = Middle button, 3 = Right button, 4 = Side Back, 5 = Side Forward
+        // Buttons 1-3 are handled by speculative hold for 1, 3 and 2 finger tap/hold/drag respectively
         when (buttonId) {
-          1 -> {
-            // Left button - normal tap/click with actual hold duration
-            // This should never be reached, as speculative hold will handle left button gestures
-            log.info { "Left click at [$currentX, $currentY] held for ${buttonDownDuration}ms" }
-            tapGesture(currentX, currentY, buttonDownDuration)
-          }
-          2 -> {
-            // Middle button - use hold duration, minimum 500ms for long press feel
-            val duration = max(buttonDownDuration, 500)
-            log.info { "Middle click at [$currentX, $currentY] with duration ${duration}ms" }
-            tapGesture(currentX, currentY, duration)
-          }
-          3 -> {
-            // Right button - use hold duration, minimum 1000ms for context menu
-            val duration = max(buttonDownDuration, 1000)
-            log.info { "Right click at [$currentX, $currentY] with duration ${duration}ms" }
-            tapGesture(currentX, currentY, duration)
-          }
           4 -> {
             // Side Back button - trigger Android Back action
             log.info { "Side Back button (button 4) - performing Back action" }
