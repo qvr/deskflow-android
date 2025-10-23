@@ -1075,8 +1075,23 @@ class GlobalInputService : AccessibilityService() {
         val scrollUp = event.y > 0
         log.debug { "Wheel [x=${event.x}, y=${event.y}, scrollUp=$scrollUp]" }
 
-        // Use swipe gesture at pointer location for consistent scrolling
-        scrollSwipe(up = scrollUp)
+        // Check if Control key is held for pinch-zoom gestures
+        val modifierKeys = keyboardManager.state.value.modifierKeys.modifierKeys
+        val isControlHeld = modifierKeys.contains(Keyboard.ModifierKey.Control)
+
+        if (isControlHeld) {
+          // Control + wheel = pinch zoom gestures
+          if (scrollUp) {
+            // Wheel up + Control = spread (zoom in)
+            spreadGesture()
+          } else {
+            // Wheel down + Control = pinch (zoom out)
+            pinchGesture()
+          }
+        } else {
+          // Normal scrolling without Control key
+          scrollSwipe(up = scrollUp)
+        }
       }
     }
   }
@@ -1096,6 +1111,117 @@ class GlobalInputService : AccessibilityService() {
         log.warn { "Overlay permissions not granted yet" }
       }
     }
+  }
+
+  /**
+   * Perform a spread gesture (zoom in) at the mouse pointer location.
+   * Creates a two-finger gesture that spreads apart to simulate zoom in.
+   */
+  private fun spreadGesture() {
+    val screenSize = getScreenSize()
+    val pointerX = mousePointerLayout.x.toFloat()
+    val pointerY = mousePointerLayout.y.toFloat()
+
+    // Finger 1: swipe from center-right to right
+    val path1 = Path().apply {
+      moveTo(pointerX + 25, pointerY)
+      lineTo(pointerX + 75, pointerY)
+    }
+
+    // Finger 2: swipe from center-left to left
+    val path2 = Path().apply {
+      moveTo(pointerX - 25, pointerY)
+      lineTo(pointerX - 75, pointerY)
+    }
+
+    val stroke1 = StrokeDescription(path1, 0, 200, true) // willContinue=true to hold touch at the end
+    val stroke2 = StrokeDescription(path2, 5, 200, true)
+
+    val gesture = GestureDescription.Builder()
+      .addStroke(stroke1)
+      .addStroke(stroke2)
+      .build()
+
+    log.info { "Spread gesture (zoom in) at [$pointerX, $pointerY]" }
+
+    dispatchGesture(gesture, object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        log.info { "Spread stroke completed, releasing with delay to stop gesture inertia" }
+        // Release the spread gesture by continuing the existing strokes and lifting both fingers from their held positions.
+        val point1 = Path().apply { moveTo(pointerX + 75, pointerY) }
+        val point2 = Path().apply { moveTo(pointerX - 75, pointerY) }
+
+        // Continue the existing strokes with a start delay, then lift (willContinue=false)
+        val lastStroke1 = stroke1.continueStroke(point1, 50, 50, false)
+        val lastStroke2 = stroke2.continueStroke(point2, 50, 50, false)
+
+        val releaseGesture = GestureDescription.Builder()
+          .addStroke(lastStroke1)
+          .addStroke(lastStroke2)
+          .build()
+        dispatchGesture(releaseGesture, gestureResultCallback, globalInputHandler)
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Spread gesture cancelled" }
+      }
+    }, globalInputHandler)
+  }
+
+  /**
+   * Perform a pinch gesture (zoom out) at the mouse pointer location.
+   * Creates a two-finger gesture that comes together to simulate zoom out.
+   * Uses willContinue=true to hold at the pinch point, then releases on completion callback.
+   */
+  private fun pinchGesture() {
+    val screenSize = getScreenSize()
+    val pointerX = mousePointerLayout.x.toFloat()
+    val pointerY = mousePointerLayout.y.toFloat()
+
+    // Finger 1: swipe from right to center-right
+    val path1 = Path().apply {
+      moveTo(pointerX + 75, pointerY)
+      lineTo(pointerX + 25, pointerY)
+    }
+
+    // Finger 2: swipe from left to center-left
+    val path2 = Path().apply {
+      moveTo(pointerX - 75, pointerY)
+      lineTo(pointerX - 25, pointerY)
+    }
+
+    val stroke1 = StrokeDescription(path1, 0, 200, true) // willContinue=true to hold touch at the end
+    val stroke2 = StrokeDescription(path2, 5, 200, true)
+
+    val gesture = GestureDescription.Builder()
+      .addStroke(stroke1)
+      .addStroke(stroke2)
+      .build()
+
+    log.info { "Pinch gesture (zoom out) at [$pointerX, $pointerY]" }
+
+    dispatchGesture(gesture, object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        log.info { "Pinch stroke completed, releasing with delay to stop gesture inertia" }
+        // Release the pinch gesture by continuing the existing strokes and lifting both fingers from their held positions.
+        val point1 = Path().apply { moveTo(pointerX + 25, pointerY) }
+        val point2 = Path().apply { moveTo(pointerX - 25, pointerY) }
+
+        // Continue the existing strokes with a start delay, then lift (willContinue=false)
+        val lastStroke1 = stroke1.continueStroke(point1, 50, 50, false)
+        val lastStroke2 = stroke2.continueStroke(point2, 50, 50, false)
+
+        val releaseGesture = GestureDescription.Builder()
+          .addStroke(lastStroke1)
+          .addStroke(lastStroke2)
+          .build()
+        dispatchGesture(releaseGesture, gestureResultCallback, globalInputHandler)
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Pinch gesture cancelled" }
+      }
+    }, globalInputHandler)
   }
 
   /**
