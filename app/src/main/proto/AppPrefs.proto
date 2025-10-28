@@ -40,12 +40,22 @@ message AppPrefs {
     map<string, Shortcut> shortcuts = 5;
   }
 
-
+  message TrustConfig {
+    message TrustedFingerprint {
+      string host = 1; // "host:port" format
+      string fingerprint_sha256 = 2; // SHA256 hex digest
+      int64 last_verified_time = 3; // Unix timestamp
+    }
+    // Map of "host:port" -> TrustedFingerprint
+    map<string, TrustedFingerprint> trusted_fingerprints = 1;
+  }
 
   ScreenConfig screen = 1;
 
   ActionsConfig actions = 2;
 
   LoggingConfig logging = 3;
+
+  TrustConfig trust = 4;
 
 }

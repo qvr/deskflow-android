@@ -54,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -79,6 +80,8 @@ import org.tfv.deskflow.ui.components.LocalAppState
 import org.tfv.deskflow.ui.components.LocalSnackbarHostState
 import org.tfv.deskflow.ui.components.PermissionsNeededDialog
 import org.tfv.deskflow.ui.components.RootNavHost
+import org.tfv.deskflow.ui.components.FingerprintVerificationDialog
+import org.tfv.deskflow.ui.models.FingerprintVerificationState
 import org.tfv.deskflow.ui.components.currentDeviceConfig
 import org.tfv.deskflow.ui.components.preview.PreviewAppState
 import org.tfv.deskflow.ui.theme.DeskflowTheme
@@ -195,6 +198,26 @@ fun RootScreen(appState: IAppState) {
         }
       }
     }
+  }
+
+  // Fingerprint verification dialog - shown on main screen
+  val fingerprintVerificationState = FingerprintVerificationState.getInstance()
+  val pendingVerification = fingerprintVerificationState.pendingVerification.collectAsState()
+
+  pendingVerification.value?.let { result ->
+    FingerprintVerificationDialog(
+      result = result,
+      onAccept = {
+        scope.launch {
+          fingerprintVerificationState.acceptFingerprint()
+        }
+      },
+      onReject = {
+        scope.launch {
+          fingerprintVerificationState.rejectFingerprint()
+        }
+      },
+    )
   }
 }
 

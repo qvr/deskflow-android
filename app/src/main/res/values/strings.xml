@@ -91,5 +91,17 @@
     <string name="settings_screen_disconnect_on_screen_off_label">Disconnect when screen off</string>
     <string name="settings_screen_disconnect_on_screen_off_description">Automatically disconnect from server when screen turns off to save battery</string>
 
+    <!-- Fingerprint verification strings -->
+    <string name="fingerprint_dialog_unknown_title">Verify Server Certificate</string>
+    <string name="fingerprint_dialog_unknown_description">This is the first connection to this server. Please verify the TLS certificate fingerprint below matches the fingerprint displayed on the server.</string>
+    <string name="fingerprint_dialog_mismatch_title">Certificate Fingerprint Changed</string>
+    <string name="fingerprint_dialog_mismatch_description">WARNING: The server\'s TLS certificate fingerprint has changed! If this is unexpected, it could indicate a security issue.</string>
+    <string name="fingerprint_dialog_button_accept">Accept &amp; Continue</string>
+    <string name="fingerprint_dialog_button_reject">Reject &amp; Disconnect</string>
+    <string name="fingerprint_dialog_expected_label">Previously Trusted Fingerprint:</string>
+    <string name="fingerprint_settings_title">Certificate Fingerprints</string>
+    <string name="fingerprint_settings_description">Manage trusted TLS certificate fingerprints for connecting servers</string>
+    <string name="fingerprint_settings_clear_all">Clear All Fingerprints</string>
 
 </resources>
+

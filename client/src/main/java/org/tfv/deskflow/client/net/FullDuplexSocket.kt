@@ -42,6 +42,9 @@ import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSession
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.coroutines.resume
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.tfv.deskflow.client.io.DynamicByteBuffer
 import org.tfv.deskflow.client.util.AbstractDisposable
 import org.tfv.deskflow.client.util.ISimpleEventEmitter
@@ -52,6 +55,7 @@ class FullDuplexSocket(
   private val host: String,
   private val port: Int,
   private val useTls: Boolean,
+  private val fingerprintVerificationCallback: FingerprintVerificationCallback? = null,
 ) :
   AbstractDisposable(),
   ISimpleEventEmitter<FullDuplexSocket.SocketEvent> by SimpleEventEmitter<
@@ -80,6 +84,9 @@ class FullDuplexSocket(
   private var netInBuffer: ByteBuffer? = null
   private var appInBuffer: ByteBuffer? = null
   private val trustManager = AllCertsTrustManager()
+
+  // Fingerprint verification state
+  @Volatile private var fingerprintVerified = false
 
   /** Check if the socket thread is running */
   val isRunning: Boolean
@@ -218,6 +225,25 @@ class FullDuplexSocket(
     }
   }
 
+  private suspend fun suspendForFingerprintVerification(certificateFingerprint: CertificateFingerprint): Boolean {
+    return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+      fingerprintVerificationCallback?.let { callback ->
+        try {
+          runBlocking {
+            callback.onFingerprintChallenge(certificateFingerprint) { accepted ->
+              continuation.resume(accepted)
+            }
+          }
+        } catch (e: Exception) {
+          log.error(e) { "Error in fingerprint callback" }
+          continuation.resume(false)
+        }
+      } ?: run {
+        continuation.resume(false)
+      }
+    }
+  }
+
   private fun runLoop() {
 
     log.trace { "Socket thread started" }
@@ -278,11 +304,76 @@ class FullDuplexSocket(
               if (sc.finishConnect()) {
                 if (useTls) {
                   doHandshake(sc, sel)
+
+                  // Verify server certificate fingerprint if TLS is enabled
+                  if (fingerprintVerificationCallback != null) {
+                    try {
+                      // Extract certificate and compute fingerprint
+                      val sslEngine = sslEngine ?: throw SSLException("SSLEngine is null")
+                      val sslSession = sslEngine.session
+                      val peerCertificates = sslSession.peerCertificates
+
+                      if (peerCertificates.isEmpty()) {
+                        throw SSLException("No peer certificates")
+                      }
+
+                      val serverCert = peerCertificates[0] as? X509Certificate
+                        ?: throw SSLException("Cannot cast peer certificate to X509Certificate")
+
+                      val fingerprint = FingerprintManager.computeFingerprint(serverCert)
+                      log.info { "Server fingerprint for $host:$port: $fingerprint" }
+
+                      // Pass certificate data to app layer for verification
+                      val certData = CertificateFingerprint(serverCert, fingerprint)
+
+                      // Record timestamp before waiting for user decision
+                      val verificationStartTime = System.currentTimeMillis()
+
+                      // Wait for app layer decision
+                      val accepted = runBlocking {
+                        suspendForFingerprintVerification(certData)
+                      }
+
+                      val verificationDuration = System.currentTimeMillis() - verificationStartTime
+
+                      if (accepted) {
+                        log.info { "Fingerprint accepted (took ${verificationDuration}ms)" }
+                        fingerprintVerified = true
+
+                        // Deskflow protocol allows 30 seconds for handshake to complete
+                        // So we reconnect if the (first-time manual) fingerprint check takes too long
+                        if (verificationDuration > 25_000) {
+                          log.info { "Fingerprint verification took too long (>${verificationDuration}ms), reconnecting" }
+                          sc.close()
+                          stop()
+                          return@runLoop
+                        }
+                      } else {
+                        log.warn { "Fingerprint rejected" }
+                        sc.close()
+                        stop()
+                        return@runLoop
+                      }
+                    } catch (e: Exception) {
+                      log.error(e) { "Exception during fingerprint verification" }
+                      sc.close()
+                      stop()
+                      return@runLoop
+                    }
+                  } else {
+                    // No callback provided, proceed without fingerprint verification
+                    log.info { "No fingerprint verification callback provided, proceeding" }
+                    fingerprintVerified = true
+                  }
+                } else {
+                  fingerprintVerified = true
                 }
 
-                // Now interested in both read and write
-                sc.register(sel, SelectionKey.OP_READ or SelectionKey.OP_WRITE)
-                emit(SocketEvent.ConnectEvent(this))
+                // Now interested in both read and write (only if fingerprint is verified or not required)
+                if (fingerprintVerified) {
+                  sc.register(sel, SelectionKey.OP_READ or SelectionKey.OP_WRITE)
+                  emit(SocketEvent.ConnectEvent(this))
+                }
               }
             }
 
