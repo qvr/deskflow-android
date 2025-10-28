@@ -36,12 +36,15 @@ import org.tfv.deskflow.client.models.ClipboardData
 import org.tfv.deskflow.client.models.SERVER_DEFAULT_ADDRESS
 import org.tfv.deskflow.client.models.ServerTarget
 import org.tfv.deskflow.client.net.FullDuplexSocket
+import org.tfv.deskflow.client.net.FingerprintVerificationCallback
 import org.tfv.deskflow.client.util.AbstractDisposable
 import org.tfv.deskflow.client.util.SingletonThreadExecutor
 import org.tfv.deskflow.client.util.disposeOf
 import org.tfv.deskflow.client.util.logging.KLoggingManager
 
-class Client() : AbstractDisposable() {
+class Client(
+  private val fingerprintVerificationCallback: FingerprintVerificationCallback? = null,
+) : AbstractDisposable() {
 
   private var socket: FullDuplexSocket? = null
 
@@ -56,6 +59,8 @@ class Client() : AbstractDisposable() {
 
   var ackReceived: Boolean = false
     private set
+
+  private var isConnecting: Boolean = false
 
   private val connectionExecutor =
     SingletonThreadExecutor("ConnectionEventLoopThread")
@@ -94,8 +99,8 @@ class Client() : AbstractDisposable() {
                 disconnect()
               }
             }
-            isConnected -> {
-              log.debug { "Socket is connected already" }
+            isConnected || isConnecting -> {
+              log.debug { "Socket is already connected or connecting" }
             }
             else -> {
               log.debug { "Attempting to connect..." }
@@ -161,8 +166,15 @@ class Client() : AbstractDisposable() {
       return
     }
 
+    isConnecting = true
+
     try {
-      val socket = FullDuplexSocket(target.address, target.port, target.useTls)
+      val socket = FullDuplexSocket(
+        target.address,
+        target.port,
+        target.useTls,
+        fingerprintVerificationCallback,
+      )
       messageHandler = MessageHandler(socket, target)
 
       this.socket = socket
@@ -170,11 +182,13 @@ class Client() : AbstractDisposable() {
         when (event) {
           is FullDuplexSocket.SocketEvent.ConnectEvent -> {
             log.info { "ConnectEvent -> ConnectionEvent.Connected" }
+            isConnecting = false
             ClientEventBus.emit(ConnectionEvent.Connected)
           }
 
           is FullDuplexSocket.SocketEvent.DisconnectEvent -> {
             log.info { "DisconnectEvent -> ConnectionEvent.Disconnected" }
+            isConnecting = false
             connectionExecutor.submit { disconnect() }
             ClientEventBus.emit(ConnectionEvent.Disconnected)
           }
@@ -184,6 +198,7 @@ class Client() : AbstractDisposable() {
           }
 
           is FullDuplexSocket.SocketEvent.ErrorEvent -> {
+            isConnecting = false
             connectionExecutor.submit { disconnect() }
           }
         }
@@ -256,6 +271,7 @@ class Client() : AbstractDisposable() {
       return
     }
 
+    isConnecting = false
     socket = disposeOf(socket)
     messageHandler = disposeOf(messageHandler)
   }

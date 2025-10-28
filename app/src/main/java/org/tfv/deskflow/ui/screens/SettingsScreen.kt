@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavOptions
@@ -64,6 +65,7 @@ import org.tfv.deskflow.ui.components.LocalSnackbarHostState
 import org.tfv.deskflow.ui.components.deskflowCardDefaultContainerModifier
 import org.tfv.deskflow.ui.components.deskflowCardStyleDefaults
 import org.tfv.deskflow.ui.components.preview.PreviewDeskflowThemedRoot
+import org.tfv.deskflow.data.TrustStore
 
 private val log = KLoggingManager.logger("SettingsScreen")
 
@@ -108,6 +110,7 @@ fun SettingsScreen(
   onChange: (ScreenState) -> Unit,
   onCancel: () -> Unit,
 ) {
+  val composableScope = rememberCoroutineScope()
 
   when (uiState) {
     is SettingsUiState.Loading -> {
@@ -386,6 +389,41 @@ fun SettingsScreen(
                   isDirty = true
                 },
               )
+            }
+
+            // Certificate fingerprint management section
+            Column(
+              modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            ) {
+              Text(
+                text = stringResource(R.string.fingerprint_settings_title),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+              )
+              Text(
+                text = stringResource(R.string.fingerprint_settings_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+              )
+
+              val ctx = LocalContext.current
+              val snackbarHost = LocalSnackbarHostState.current
+
+              Button(
+                onClick = {
+                  composableScope.launch {
+                    val trustStore = TrustStore(ctx)
+                    trustStore.clearAllFingerprints()
+                    snackbarHost.showSnackbar("All trusted fingerprints cleared")
+                  }
+                },
+                shape = MaterialTheme.shapes.small,
+                colors = ButtonDefaults.outlinedButtonColors(),
+                modifier = Modifier.padding(top = 8.dp),
+              ) {
+                Text(stringResource(R.string.fingerprint_settings_clear_all))
+              }
             }
           }
         }

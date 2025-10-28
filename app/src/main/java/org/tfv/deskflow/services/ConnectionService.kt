@@ -56,6 +56,8 @@ import org.tfv.deskflow.client.events.ScreenEvent
 import org.tfv.deskflow.client.ext.toDebugString
 import org.tfv.deskflow.client.manager.ClipboardSendManager
 import org.tfv.deskflow.client.models.ClipboardData
+import org.tfv.deskflow.client.net.CertificateFingerprint
+import org.tfv.deskflow.client.net.FingerprintVerificationCallback
 import org.tfv.deskflow.client.util.logging.KLoggingManager
 import org.tfv.deskflow.data.aidl.ConnectionState
 import org.tfv.deskflow.data.aidl.IConnectionService
@@ -63,6 +65,7 @@ import org.tfv.deskflow.data.aidl.IConnectionServiceCallback
 import org.tfv.deskflow.data.aidl.Result
 import org.tfv.deskflow.data.aidl.ScreenState
 import org.tfv.deskflow.data.appPrefsStore
+import org.tfv.deskflow.data.TrustStore
 import org.tfv.deskflow.data.models.AppPrefs
 import org.tfv.deskflow.data.models.AppPrefsKt.ScreenConfigKt.serverConfig
 import org.tfv.deskflow.data.models.AppPrefsKt.loggingConfig
@@ -73,6 +76,7 @@ import org.tfv.deskflow.ext.toServerTarget
 import org.tfv.deskflow.logging.AndroidForwardingLogger
 import org.tfv.deskflow.logging.LogRecordEvent
 import org.tfv.deskflow.receivers.ScreenStateReceiver
+import org.tfv.deskflow.ui.models.FingerprintVerificationState
 
 class ConnectionService : Service() {
   companion object {
@@ -97,7 +101,11 @@ class ConnectionService : Service() {
   private val broadcastExecutor =
     Executors.newSingleThreadExecutor(broadcastThreadFactory)
 
-  private val client = Client()
+  private var fingerprintVerificationCallback: FingerprintVerificationCallback? = null
+
+  private val client: Client by lazy {
+    Client(fingerprintVerificationCallback)
+  }
 
   /** The connection state model */
   private lateinit var connectionStateModel: ConnectionStateModel
@@ -116,6 +124,91 @@ class ConnectionService : Service() {
 
   private val connectionCallbacks =
     RemoteCallbackList<IConnectionServiceCallback>()
+
+  /**
+   * Inner class that handles fingerprint verification challenges
+   */
+  private inner class FingerprintVerificationHandlerImpl : FingerprintVerificationCallback {
+    override suspend fun onFingerprintChallenge(
+      certificateFingerprint: CertificateFingerprint,
+      callback: suspend (Boolean) -> Unit,
+    ) {
+      log.info { "Certificate fingerprint verification requested" }
+      log.info { "Subject: ${certificateFingerprint.certificate.subjectX500Principal}" }
+      log.info { "Fingerprint: ${certificateFingerprint.fingerprint}" }
+
+      // Check if this fingerprint is already trusted
+      val state = connectionStateModel.state.value
+      val serverAddress = state.screen.server.address
+      val serverPort = state.screen.server.port
+
+      val trustStore = TrustStore(applicationContext)
+
+      // Check what verification result we should show
+      val storedFingerprint = trustStore.getTrustedFingerprint(serverAddress, serverPort)
+
+      when {
+        storedFingerprint == null -> {
+          // Unknown fingerprint - first time seeing this server
+          log.info { "Unknown fingerprint, requesting user verification" }
+          val result = org.tfv.deskflow.client.net.FingerprintVerificationResult.Unknown(
+            certificateFingerprint.certificate,
+            certificateFingerprint.fingerprint
+          )
+          FingerprintVerificationState.getInstance().postChallenge(result) { accepted ->
+            if (accepted) {
+              log.info { "User accepted fingerprint, storing in TrustStore" }
+              serviceScope.launch {
+                trustStore.trustFingerprint(serverAddress, serverPort, certificateFingerprint.fingerprint)
+              }
+            } else {
+              log.warn { "User rejected fingerprint" }
+            }
+            callback(accepted)
+          }
+        }
+
+        storedFingerprint == certificateFingerprint.fingerprint -> {
+          // Trusted - matches stored fingerprint
+          log.info { "Fingerprint matches trusted value, accepting" }
+          callback(true)
+        }
+
+        else -> {
+          // Mismatch - server certificate changed!
+          log.error { "Fingerprint MISMATCH! Expected: $storedFingerprint, Got: ${certificateFingerprint.fingerprint}" }
+          val result = org.tfv.deskflow.client.net.FingerprintVerificationResult.Mismatch(
+            certificateFingerprint.certificate,
+            certificateFingerprint.fingerprint,
+            storedFingerprint
+          )
+          FingerprintVerificationState.getInstance().postChallenge(result) { accepted ->
+            if (accepted) {
+              log.warn { "User accepted MISMATCHED fingerprint, updating TrustStore" }
+              serviceScope.launch {
+                trustStore.trustFingerprint(serverAddress, serverPort, certificateFingerprint.fingerprint)
+              }
+            } else {
+              log.info { "User rejected mismatched fingerprint" }
+            }
+            callback(accepted)
+          }
+        }
+      }
+    }
+
+    /**
+     * Check if fingerprint was rejected and disable connection if needed
+     */
+    fun checkAndHandleRejection() {
+      val state = FingerprintVerificationState.getInstance()
+      if (state.isConnectionDisabledDueToRejection()) {
+        log.info { "Fingerprint was rejected, disabling connection" }
+        connectionStateModel.updateState { it.copy(isEnabled = false) }
+        state.clear()
+      }
+    }
+  }
 
   private val binder =
     object : IConnectionService.Stub() {
@@ -386,6 +479,13 @@ class ConnectionService : Service() {
     connectionStateModel.state.collect { state ->
       log.info { "CHANGED: ConnectionState(${state.toDebugString()})" }
 
+      // Check if fingerprint was rejected
+      fingerprintVerificationCallback?.let { handler ->
+        if (handler is FingerprintVerificationHandlerImpl) {
+          handler.checkAndHandleRejection()
+        }
+      }
+
       checkEnabled()
       sendToClients { onStateChanged(state) }
 
@@ -443,6 +543,9 @@ class ConnectionService : Service() {
 //    if (BuildConfig.DEBUG) {
 //      android.os.Debug.waitForDebugger()
 //    }
+
+    // Initialize fingerprint verification handler
+    fingerprintVerificationCallback = FingerprintVerificationHandlerImpl()
 
     connectionStateModel = ConnectionStateModel(this)
     serviceScope.launch {
