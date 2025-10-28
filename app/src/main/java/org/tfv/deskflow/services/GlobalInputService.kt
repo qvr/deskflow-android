@@ -186,6 +186,12 @@ class GlobalInputService : AccessibilityService() {
   @Volatile private var mousePointerVisible = false
 
   /**
+   * Flag to indicate if the accessibility service is fully connected and ready.
+   * The service must be connected before we can add overlay windows.
+   */
+  @Volatile private var isServiceConnected = false
+
+  /**
    * Tracks the current mouse button state for drag detection.
    * Stores button ID and the position where the button was pressed.
    */
@@ -478,7 +484,7 @@ class GlobalInputService : AccessibilityService() {
         }
       }
 
-    mousePointerView = View.inflate(baseContext, R.layout.mouse_pointer, null)
+    mousePointerView = View.inflate(this, R.layout.mouse_pointer, null)
     mousePointerLayout =
       WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
@@ -1121,23 +1127,6 @@ class GlobalInputService : AccessibilityService() {
     }
   }
 
-  /** Set up the pointer view and add it to the window manager. */
-  private fun setupMousePointer() {
-    when (canDrawOverlays()) {
-      true -> {
-        if (!mousePointerVisible) {
-          windowManager.addView(mousePointerView, mousePointerLayout)
-          mousePointerVisible = true
-          log.debug { "Mouse pointer shown" }
-        }
-      }
-
-      false -> {
-        log.warn { "Overlay permissions not granted yet" }
-      }
-    }
-  }
-
   /**
    * Perform a spread gesture (zoom in) at the mouse pointer location.
    * Creates a two-finger gesture that spreads apart to simulate zoom in.
@@ -1321,8 +1310,9 @@ class GlobalInputService : AccessibilityService() {
   /**
    * Reinitialize the mouse pointer view and window manager.
    * Called when we detect that the window manager token is invalid (e.g., after app update).
+   * Returns true if reinitialization succeeded and view is ready to be added.
    */
-  private fun reinitializeMousePointer() {
+  private fun reinitializeMousePointer(): Boolean {
     log.info { "Reinitializing mouse pointer after window manager error" }
 
     try {
@@ -1336,14 +1326,17 @@ class GlobalInputService : AccessibilityService() {
         mousePointerVisible = false
       }
 
-      // Recreate the view and window manager
-      mousePointerView = View.inflate(baseContext, R.layout.mouse_pointer, null)
-      windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-
-      // Recreate layout params (reuse existing position)
+      // Save old position
       val oldX = mousePointerLayout.x
       val oldY = mousePointerLayout.y
 
+      // Recreate the view - this gets a fresh view instance
+      mousePointerView = View.inflate(this, R.layout.mouse_pointer, null)
+
+      // Get a fresh window manager instance - critical for fixing token issues
+      windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+      // Recreate layout params with fresh instance
       mousePointerLayout = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
@@ -1359,9 +1352,17 @@ class GlobalInputService : AccessibilityService() {
       mousePointerLayout.x = oldX
       mousePointerLayout.y = oldY
 
+      // Verify we can actually use this by checking overlay permission
+      if (!canDrawOverlays()) {
+        log.warn { "Cannot reinitialize - overlay permission not granted" }
+        return false
+      }
+
       log.info { "Mouse pointer reinitialized successfully" }
+      return true
     } catch (err: Exception) {
       log.error(err) { "Error reinitializing mouse pointer" }
+      return false
     }
   }
 
@@ -1372,6 +1373,11 @@ class GlobalInputService : AccessibilityService() {
   private fun showMousePointer() {
     if (mousePointerVisible) {
       log.debug { "Mouse pointer already visible, skipping" }
+      return
+    }
+
+    if (!isServiceConnected) {
+      log.warn { "Cannot show mouse pointer - accessibility service not yet connected" }
       return
     }
 
@@ -1389,14 +1395,19 @@ class GlobalInputService : AccessibilityService() {
       log.error(err) { "BadTokenException when showing mouse pointer - window manager token invalid, attempting reinitialize" }
       mousePointerVisible = false
 
-      // Try to reinitialize and show again
-      reinitializeMousePointer()
-      try {
-        windowManager.addView(mousePointerView, mousePointerLayout)
-        mousePointerVisible = true
-        log.info { "Mouse pointer shown successfully after reinitialization" }
-      } catch (retryErr: Exception) {
-        log.error(retryErr) { "Error showing mouse pointer after reinitialization" }
+      // Try to reinitialize
+      if (reinitializeMousePointer()) {
+        // Reinitialization succeeded, try adding view one more time
+        try {
+          windowManager.addView(mousePointerView, mousePointerLayout)
+          mousePointerVisible = true
+          screenWakelockManager.onMouseMovement()
+          log.info { "Mouse pointer shown successfully after reinitialization" }
+        } catch (retryErr: Exception) {
+          log.error(retryErr) { "Error showing mouse pointer after reinitialization" }
+        }
+      } else {
+        log.error { "Reinitialization failed, cannot show mouse pointer" }
       }
     } catch (err: Exception) {
       log.error(err) { "Error showing mouse pointer" }
@@ -1499,11 +1510,13 @@ class GlobalInputService : AccessibilityService() {
   override fun onServiceConnected() {
     super.onServiceConnected()
 
+    // Mark service as connected - now safe to add overlay windows
+    isServiceConnected = true
+    log.info { "Accessibility service connected, window overlays now available" }
+
     val imeId = deskflowImeInfo
     Log.i(TAG, "imeId=$imeId,imeEnabled=$isDeskflowImeEnabled")
     clipboard.addPrimaryClipChangedListener(this.onClipboardChanged)
-
-    setupMousePointer()
 
     sendServiceConnectionEvent<GlobalInputService>()
 
