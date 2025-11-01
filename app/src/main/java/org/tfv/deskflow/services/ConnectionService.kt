@@ -65,6 +65,7 @@ import org.tfv.deskflow.data.aidl.IConnectionServiceCallback
 import org.tfv.deskflow.data.aidl.Result
 import org.tfv.deskflow.data.aidl.ScreenState
 import org.tfv.deskflow.data.appPrefsStore
+import org.tfv.deskflow.data.ClientCertificateManager
 import org.tfv.deskflow.data.TrustStore
 import org.tfv.deskflow.data.models.AppPrefs
 import org.tfv.deskflow.data.models.AppPrefsKt.ScreenConfigKt.serverConfig
@@ -103,8 +104,37 @@ class ConnectionService : Service() {
 
   private var fingerprintVerificationCallback: FingerprintVerificationCallback? = null
 
-  private val client: Client by lazy {
-    Client(fingerprintVerificationCallback)
+  private val clientCertificateManager: ClientCertificateManager by lazy {
+    ClientCertificateManager(applicationContext)
+  }
+
+  @Volatile
+  private var client: Client? = null
+
+  private fun getOrCreateClient(): Client {
+    return client ?: synchronized(this) {
+      client ?: run {
+        // Ensure certificate exists before creating client
+        clientCertificateManager.ensureCertificateExists()
+        val keyManager = clientCertificateManager.getKeyManager()
+        Client(fingerprintVerificationCallback, keyManager).also {
+          client = it
+        }
+      }
+    }
+  }
+
+  private fun recreateClient() {
+    synchronized(this) {
+      val oldClient = client
+      if (oldClient != null) {
+        log.info { "Disposing old client" }
+        oldClient.dispose()
+      }
+      client = null
+      log.info { "Old client disposed, ready to create new one" }
+      // Will be recreated on next connection attempt
+    }
   }
 
   /** The connection state model */
@@ -153,7 +183,8 @@ class ConnectionService : Service() {
           log.info { "Unknown fingerprint, requesting user verification" }
           val result = org.tfv.deskflow.client.net.FingerprintVerificationResult.Unknown(
             certificateFingerprint.certificate,
-            certificateFingerprint.fingerprint
+            certificateFingerprint.fingerprint,
+            certificateFingerprint.clientAuthRequested
           )
           FingerprintVerificationState.getInstance().postChallenge(result) { accepted ->
             if (accepted) {
@@ -180,7 +211,8 @@ class ConnectionService : Service() {
           val result = org.tfv.deskflow.client.net.FingerprintVerificationResult.Mismatch(
             certificateFingerprint.certificate,
             certificateFingerprint.fingerprint,
-            storedFingerprint
+            storedFingerprint,
+            certificateFingerprint.clientAuthRequested
           )
           FingerprintVerificationState.getInstance().postChallenge(result) { accepted ->
             if (accepted) {
@@ -219,7 +251,7 @@ class ConnectionService : Service() {
           require(clipboardData != null) {
             "clipboardData was not valid in clipboard data bundle"
           }
-          client.sendClipboard(clipboardData)
+          getOrCreateClient().sendClipboard(clipboardData)
           return Result().apply {
             ok = true
             message = ""
@@ -232,6 +264,47 @@ class ConnectionService : Service() {
           }
         }
 
+      }
+
+      override fun regenerateClientCertificate(): Result {
+        return catch({
+          log.info { "Regenerating client certificate" }
+
+          // Remember if we were enabled
+          val wasEnabled = connectionStateModel.state.value.isEnabled
+
+          // Disable connection first to stop any reconnection attempts
+          if (wasEnabled) {
+            log.info { "Disabling connection before regenerating certificate" }
+            connectionStateModel.updateState { it.copy(isEnabled = false) }
+          }
+
+          // Regenerate the certificate
+          clientCertificateManager.generateCertificate()
+
+          // Recreate the client to use the new certificate
+          // This properly shuts down the old client's executor thread
+          recreateClient()
+
+          // Re-enable connection if it was enabled before
+          if (wasEnabled) {
+            log.info { "Re-enabling connection with new certificate" }
+            connectionStateModel.updateState { it.copy(isEnabled = true) }
+          }
+
+          log.info { "Client certificate regenerated and client restarted" }
+
+          Result().apply {
+            ok = true
+            message = "Client certificate regenerated successfully"
+          }
+        }) { err: Throwable ->
+          log.error(err) { "Failed to regenerate client certificate" }
+          Result().apply {
+            ok = false
+            message = err.message ?: "Failed to regenerate certificate"
+          }
+        }
       }
 
       override fun setEnabled(enabled: Boolean): Result {
@@ -379,6 +452,7 @@ class ConnectionService : Service() {
   /** Check if the client is enabled and update if necessary. */
   private fun checkEnabled() {
     val state = connectionStateModel.state.value
+    val client = getOrCreateClient()
 
     if (state.isEnabled != client.isEnabled) {
       log.info {
@@ -490,7 +564,7 @@ class ConnectionService : Service() {
       sendToClients { onStateChanged(state) }
 
       val screen = state.screen
-      client.setTarget(screen.toServerTarget())
+      getOrCreateClient().setTarget(screen.toServerTarget())
     }
   }
 
@@ -606,7 +680,7 @@ class ConnectionService : Service() {
       connectionCallbacks.kill()
     }
 
-    client.dispose()
+    client?.dispose()
 
     connectionStateUpdateJob?.cancel()
     connectionStateUpdateJob = null

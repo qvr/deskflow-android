@@ -83,6 +83,8 @@ import org.tfv.deskflow.ui.components.RootNavHost
 import org.tfv.deskflow.ui.components.FingerprintVerificationDialog
 import org.tfv.deskflow.ui.models.FingerprintVerificationState
 import org.tfv.deskflow.ui.components.currentDeviceConfig
+import org.tfv.deskflow.data.ClientCertificateManager
+import org.tfv.deskflow.client.net.FingerprintManager
 import org.tfv.deskflow.ui.components.preview.PreviewAppState
 import org.tfv.deskflow.ui.theme.DeskflowTheme
 import org.tfv.deskflow.ui.theme.LocalDeskflowExtendedColorScheme
@@ -205,8 +207,14 @@ fun RootScreen(appState: IAppState) {
   val pendingVerification = fingerprintVerificationState.pendingVerification.collectAsState()
 
   pendingVerification.value?.let { result ->
+    // Get client certificate fingerprint
+    val certManager = ClientCertificateManager(context)
+    val clientCert = certManager.getCertificate()
+    val clientFingerprint = clientCert?.let { FingerprintManager.computeFingerprint(it) }
+
     FingerprintVerificationDialog(
       result = result,
+      clientCertificateFingerprint = clientFingerprint,
       onAccept = {
         scope.launch {
           fingerprintVerificationState.acceptFingerprint()

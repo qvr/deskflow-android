@@ -253,6 +253,10 @@ class ConnectionServiceClient(
     return connectionService?.updateScreenState(screenState)
   }
 
+  override fun regenerateClientCertificate(): Result? {
+    return connectionService?.regenerateClientCertificate()
+  }
+
   override fun getState(): ConnectionState {
     val state = connectionService?.state ?: ConnectionState()
     stateEditableFlow.value = state

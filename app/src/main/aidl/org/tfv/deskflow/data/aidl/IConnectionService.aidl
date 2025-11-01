@@ -19,5 +19,7 @@ interface IConnectionService {
 
         Result setClipboardData(in Bundle bundle);
 
+        Result regenerateClientCertificate();
+
         ConnectionState getState();
 }

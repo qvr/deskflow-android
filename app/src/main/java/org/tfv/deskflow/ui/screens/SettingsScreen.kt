@@ -57,6 +57,7 @@ import org.tfv.deskflow.data.aidl.ScreenState
 import org.tfv.deskflow.data.aidl.ServerState
 import org.tfv.deskflow.ui.annotations.PreviewAll
 import org.tfv.deskflow.ui.components.AppState
+import org.tfv.deskflow.ui.components.ClientCertificateDialog
 import org.tfv.deskflow.ui.components.DeskflowCard
 import org.tfv.deskflow.ui.components.DeskflowCardSubtitle
 import org.tfv.deskflow.ui.components.DeskflowCardTitle
@@ -65,7 +66,9 @@ import org.tfv.deskflow.ui.components.LocalSnackbarHostState
 import org.tfv.deskflow.ui.components.deskflowCardDefaultContainerModifier
 import org.tfv.deskflow.ui.components.deskflowCardStyleDefaults
 import org.tfv.deskflow.ui.components.preview.PreviewDeskflowThemedRoot
+import org.tfv.deskflow.data.ClientCertificateManager
 import org.tfv.deskflow.data.TrustStore
+import org.tfv.deskflow.client.net.FingerprintManager
 
 private val log = KLoggingManager.logger("SettingsScreen")
 
@@ -86,6 +89,8 @@ internal fun SettingsScreenRoute(appState: IAppState) {
   val snackbarHost = LocalSnackbarHostState.current
   val scope = rememberCoroutineScope()
   val ctx = LocalContext.current
+  var isRegenerating by remember { mutableStateOf(false) }
+
   SettingsScreen(
     uiState =
       if (screenState == null) SettingsUiState.Loading
@@ -99,6 +104,25 @@ internal fun SettingsScreenRoute(appState: IAppState) {
       }
 
     },
+    isRegenerating = isRegenerating,
+    onRegenerateCertificate = {
+      if (appState !is AppState) return@SettingsScreen
+      if (isRegenerating) return@SettingsScreen
+
+      scope.launch {
+        isRegenerating = true
+        try {
+          val result = appState.serviceClient.regenerateClientCertificate()
+          if (result?.ok == true) {
+            snackbarHost.showSnackbar(ctx.getString(R.string.client_cert_regenerated))
+          } else {
+            snackbarHost.showSnackbar(ctx.getString(R.string.client_cert_regenerate_error))
+          }
+        } finally {
+          isRegenerating = false
+        }
+      }
+    },
     onCancel = { appState.navigateToHome() },
   )
 }
@@ -108,6 +132,8 @@ internal fun SettingsScreenRoute(appState: IAppState) {
 fun SettingsScreen(
   uiState: SettingsUiState,
   onChange: (ScreenState) -> Unit,
+  isRegenerating: Boolean,
+  onRegenerateCertificate: () -> Unit,
   onCancel: () -> Unit,
 ) {
   val composableScope = rememberCoroutineScope()
@@ -391,38 +417,133 @@ fun SettingsScreen(
               )
             }
 
-            // Certificate fingerprint management section
+            Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // TLS Certificate Management Section
+            var showClientCertDialog by remember { mutableStateOf(false) }
+
             Column(
-              modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+              modifier = Modifier.fillMaxWidth()
             ) {
               Text(
-                text = stringResource(R.string.fingerprint_settings_title),
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(R.string.tls_settings_title),
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
               )
               Text(
-                text = stringResource(R.string.fingerprint_settings_description),
+                text = stringResource(R.string.tls_settings_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
               )
 
-              val ctx = LocalContext.current
-              val snackbarHost = LocalSnackbarHostState.current
-
-              Button(
-                onClick = {
-                  composableScope.launch {
-                    val trustStore = TrustStore(ctx)
-                    trustStore.clearAllFingerprints()
-                    snackbarHost.showSnackbar("All trusted fingerprints cleared")
-                  }
-                },
-                shape = MaterialTheme.shapes.small,
-                colors = ButtonDefaults.outlinedButtonColors(),
-                modifier = Modifier.padding(top = 8.dp),
+              // Server Fingerprints subsection
+              Column(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
               ) {
-                Text(stringResource(R.string.fingerprint_settings_clear_all))
+                Text(
+                  text = stringResource(R.string.server_fingerprints_subtitle),
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                  text = stringResource(R.string.server_fingerprints_description),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.padding(top = 4.dp)
+                )
+
+                val ctx = LocalContext.current
+                val snackbarHost = LocalSnackbarHostState.current
+
+                Button(
+                  onClick = {
+                    composableScope.launch {
+                      val trustStore = TrustStore(ctx)
+                      trustStore.clearAllFingerprints()
+                      snackbarHost.showSnackbar(ctx.getString(R.string.server_fingerprints_cleared))
+                    }
+                  },
+                  shape = MaterialTheme.shapes.small,
+                  colors = ButtonDefaults.outlinedButtonColors(),
+                  modifier = Modifier.padding(top = 8.dp),
+                ) {
+                  Text(stringResource(R.string.server_fingerprints_clear_all))
+                }
+              }
+
+              // Client Certificate subsection
+              Column(
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Text(
+                  text = stringResource(R.string.client_cert_subtitle),
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                  text = stringResource(R.string.client_cert_description),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.padding(top = 4.dp)
+                )
+
+                val ctx = LocalContext.current
+                val snackbarHost = LocalSnackbarHostState.current
+
+                Row(
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  modifier = Modifier.padding(top = 8.dp),
+                ) {
+                  Button(
+                    onClick = {
+                      composableScope.launch {
+                        val certManager = ClientCertificateManager(ctx)
+                        val cert = certManager.getCertificate()
+                        if (cert != null) {
+                          showClientCertDialog = true
+                        } else {
+                          snackbarHost.showSnackbar(ctx.getString(R.string.client_cert_not_available))
+                        }
+                      }
+                    },
+                    shape = MaterialTheme.shapes.small,
+                    colors = ButtonDefaults.outlinedButtonColors(),
+                  ) {
+                    Text(stringResource(R.string.client_cert_view))
+                  }
+
+                  Button(
+                    onClick = { onRegenerateCertificate() },
+                    enabled = !isRegenerating,
+                    shape = MaterialTheme.shapes.small,
+                    colors = ButtonDefaults.outlinedButtonColors(),
+                  ) {
+                    if (isRegenerating) {
+                      CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                      )
+                      Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(stringResource(R.string.client_cert_regenerate))
+                  }
+                }
+              }
+            }
+
+            // Client Certificate Dialog
+            if (showClientCertDialog) {
+              val ctx = LocalContext.current
+              val certManager = ClientCertificateManager(ctx)
+              val cert = certManager.getCertificate()
+              cert?.let {
+                val fingerprint = FingerprintManager.computeFingerprint(it)
+                ClientCertificateDialog(
+                  fingerprint = fingerprint,
+                  onDismiss = { showClientCertDialog = false }
+                )
               }
             }
           }
@@ -439,6 +560,8 @@ fun SettingsScreenPreviewLoading() {
     SettingsScreen(
       uiState = SettingsUiState.Loading,
       onChange = {},
+      isRegenerating = false,
+      onRegenerateCertificate = {},
       onCancel = {},
     )
   }
@@ -474,6 +597,8 @@ fun SettingsScreenPreviewSuccess() {
           snackbarHost.showSnackbar(ctx.getString(R.string.toast_settings_saved))
         }
       },
+      isRegenerating = false,
+      onRegenerateCertificate = {},
       onCancel = {},
     )
   }

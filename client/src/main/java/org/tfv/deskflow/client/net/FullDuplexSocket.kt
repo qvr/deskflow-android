@@ -35,6 +35,7 @@ import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 import java.nio.channels.SocketChannel
 import java.util.concurrent.LinkedBlockingQueue
+import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult
@@ -56,6 +57,7 @@ class FullDuplexSocket(
   private val port: Int,
   private val useTls: Boolean,
   private val fingerprintVerificationCallback: FingerprintVerificationCallback? = null,
+  private val clientKeyManager: KeyManager? = null,
 ) :
   AbstractDisposable(),
   ISimpleEventEmitter<FullDuplexSocket.SocketEvent> by SimpleEventEmitter<
@@ -259,7 +261,9 @@ class FullDuplexSocket(
             // Initialize SSL context and engine for client mode
             sslContext = SSLContext.getInstance("TLS")
             val sslContext = sslContext!!
-            sslContext.init(null, arrayOf(trustManager), null)
+            // Use client key manager if provided for client certificate authentication
+            val keyManagers = if (clientKeyManager != null) arrayOf(clientKeyManager) else null
+            sslContext.init(keyManagers, arrayOf(trustManager), null)
             sslEngine = sslContext.createSSLEngine(host, port)
             val sslEngine = sslEngine!!
             sslEngine.useClientMode = true
@@ -323,8 +327,13 @@ class FullDuplexSocket(
                       val fingerprint = FingerprintManager.computeFingerprint(serverCert)
                       log.info { "Server fingerprint for $host:$port: $fingerprint" }
 
+                      // Check if client certificate was actually used in this connection
+                      val localCerts = sslSession.localCertificates
+                      val clientAuthRequested = localCerts != null && localCerts.isNotEmpty()
+                      log.info { "Client certificate used in connection: $clientAuthRequested" }
+
                       // Pass certificate data to app layer for verification
-                      val certData = CertificateFingerprint(serverCert, fingerprint)
+                      val certData = CertificateFingerprint(serverCert, fingerprint, clientAuthRequested)
 
                       // Record timestamp before waiting for user decision
                       val verificationStartTime = System.currentTimeMillis()

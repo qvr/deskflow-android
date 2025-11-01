@@ -41,9 +41,11 @@ import org.tfv.deskflow.client.util.AbstractDisposable
 import org.tfv.deskflow.client.util.SingletonThreadExecutor
 import org.tfv.deskflow.client.util.disposeOf
 import org.tfv.deskflow.client.util.logging.KLoggingManager
+import javax.net.ssl.KeyManager
 
 class Client(
   private val fingerprintVerificationCallback: FingerprintVerificationCallback? = null,
+  private val clientKeyManager: KeyManager? = null,
 ) : AbstractDisposable() {
 
   private var socket: FullDuplexSocket? = null
@@ -174,6 +176,7 @@ class Client(
         target.port,
         target.useTls,
         fingerprintVerificationCallback,
+        clientKeyManager,
       )
       messageHandler = MessageHandler(socket, target)
 
@@ -257,7 +260,15 @@ class Client(
 
   /** Cleanup */
   override fun onDispose() {
-    disconnect()
+    log.info { "Disposing client" }
+
+    // First, shutdown the executor to prevent new tasks from being scheduled
+    connectionExecutor.shutdown()
+
+    // Now perform final cleanup directly (not scheduled)
+    isConnecting = false
+    socket = disposeOf(socket)
+    messageHandler = disposeOf(messageHandler)
 
     ClientEventBus.off(this::onClientEvent)
   }
@@ -272,6 +283,8 @@ class Client(
     }
 
     isConnecting = false
+    ackReceived = false
+    isScreenActive = false
     socket = disposeOf(socket)
     messageHandler = disposeOf(messageHandler)
   }
