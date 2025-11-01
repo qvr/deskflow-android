@@ -50,6 +50,7 @@ import org.tfv.deskflow.client.net.FingerprintVerificationResult
 @Composable
 fun FingerprintVerificationDialog(
   result: FingerprintVerificationResult,
+  clientCertificateFingerprint: String? = null,
   onAccept: () -> Unit,
   onReject: () -> Unit,
 ) {
@@ -101,63 +102,145 @@ fun FingerprintVerificationDialog(
           else -> {}
         }
 
-        // Fingerprint display with ASCII art
-        Card(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-          colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-          ),
+        val fingerprint = when (result) {
+          is FingerprintVerificationResult.Unknown -> result.fingerprint
+          is FingerprintVerificationResult.Mismatch -> result.fingerprint
+          else -> ""
+        }
+
+        // Show both server and client fingerprints side by side
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          Column(
+          // Server Fingerprint
+          Card(
             modifier = Modifier
-              .fillMaxWidth()
-              .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+              .weight(1f)
+              .padding(vertical = 8.dp),
+            colors = CardDefaults.cardColors(
+              containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
           ) {
-            val fingerprint = when (result) {
-              is FingerprintVerificationResult.Unknown -> result.fingerprint
-              is FingerprintVerificationResult.Mismatch -> result.fingerprint
-              else -> ""
-            }
-
-            // ASCII art representation
-            SelectionContainer {
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
               Text(
-                text = FingerprintManager.generateFingerprintAsciiArt(fingerprint),
-                style = MaterialTheme.typography.bodySmall.copy(
-                  fontFamily = FontFamily.Monospace,
-                ),
+                text = stringResource(R.string.fingerprint_dialog_server_title),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .background(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = MaterialTheme.shapes.small,
-                  )
-                  .padding(8.dp),
               )
-            }
 
-            // Full fingerprint (scrollable, selectable)
-            SelectionContainer {
-              Text(
-                text = fingerprint,
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .background(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = MaterialTheme.shapes.small,
-                  )
-                  .padding(8.dp)
-                  .verticalScroll(rememberScrollState()),
-                maxLines = 3,
-              )
+              // ASCII art representation
+              SelectionContainer {
+                Text(
+                  text = FingerprintManager.generateFingerprintAsciiArt(fingerprint),
+                  style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                  ),
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                      color = MaterialTheme.colorScheme.surface,
+                      shape = MaterialTheme.shapes.small,
+                    )
+                    .padding(8.dp),
+                )
+              }
+
+              // Full fingerprint (scrollable, selectable)
+              SelectionContainer {
+                Text(
+                  text = fingerprint,
+                  style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                      color = MaterialTheme.colorScheme.surface,
+                      shape = MaterialTheme.shapes.small,
+                    )
+                    .padding(8.dp)
+                    .verticalScroll(rememberScrollState()),
+                  maxLines = 5,
+                )
+              }
             }
           }
+
+          // Client Certificate Fingerprint (if available)
+          if (clientCertificateFingerprint != null) {
+            Card(
+              modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 8.dp),
+              colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+              ),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                Text(
+                  text = stringResource(R.string.fingerprint_dialog_client_title),
+                  style = MaterialTheme.typography.labelMedium,
+                  color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+
+                // ASCII art representation
+                SelectionContainer {
+                  Text(
+                    text = FingerprintManager.generateFingerprintAsciiArt(clientCertificateFingerprint),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                      fontFamily = FontFamily.Monospace,
+                    ),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .background(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = MaterialTheme.shapes.small,
+                      )
+                      .padding(8.dp),
+                  )
+                }
+
+                // Full fingerprint (scrollable, selectable)
+                SelectionContainer {
+                  Text(
+                    text = clientCertificateFingerprint,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .background(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = MaterialTheme.shapes.small,
+                      )
+                      .padding(8.dp)
+                      .verticalScroll(rememberScrollState()),
+                    maxLines = 5,
+                  )
+                }
+              }
+            }
+          }
+        }
+
+        // Note about verifying both
+        if (clientCertificateFingerprint != null) {
+          Text(
+            text = stringResource(R.string.fingerprint_dialog_verify_both),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
         }
 
         // Additional info

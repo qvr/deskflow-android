@@ -99,9 +99,34 @@
     <string name="fingerprint_dialog_button_accept">Accept &amp; Continue</string>
     <string name="fingerprint_dialog_button_reject">Reject &amp; Disconnect</string>
     <string name="fingerprint_dialog_expected_label">Previously Trusted Fingerprint:</string>
-    <string name="fingerprint_settings_title">Certificate Fingerprints</string>
-    <string name="fingerprint_settings_description">Manage trusted TLS certificate fingerprints for connecting servers</string>
-    <string name="fingerprint_settings_clear_all">Clear All Fingerprints</string>
+    <string name="fingerprint_dialog_server_title">Server Certificate</string>
+    <string name="fingerprint_dialog_client_title">Your Client Certificate</string>
+    <string name="fingerprint_dialog_verify_both">Verify both fingerprints match what is displayed on the server.</string>
+
+    <!-- TLS Certificate Management -->
+    <string name="tls_settings_title">TLS Encryption Settings</string>
+    <string name="tls_settings_description">Manage settings for secure server connections</string>
+
+    <!-- Server Fingerprints -->
+    <string name="server_fingerprints_subtitle">Trusted Server Fingerprints</string>
+    <string name="server_fingerprints_description">These are fingerprints of server certificates you\'ve previously trusted</string>
+    <string name="server_fingerprints_clear_all">Clear All Server Fingerprints</string>
+    <string name="server_fingerprints_cleared">All trusted server fingerprints cleared</string>
+
+    <!-- Client Certificate -->
+    <string name="client_cert_subtitle">Client Certificate</string>
+    <string name="client_cert_description">Your certificate for authenticating to servers that require client authentication</string>
+    <string name="client_cert_view">View Client Certificate Fingerprint</string>
+    <string name="client_cert_regenerate">Regenerate Client Certificate</string>
+    <string name="client_cert_regenerated">Client certificate regenerated successfully</string>
+    <string name="client_cert_regenerate_error">Failed to regenerate client certificate</string>
+
+    <!-- Client Certificate Dialog -->
+    <string name="client_cert_dialog_title">Client Certificate Fingerprint</string>
+    <string name="client_cert_dialog_description">This is your client certificate fingerprint. Please verify the TLS certificate fingerprint below matches the fingerprint displayed on the server.</string>
+    <string name="client_cert_dialog_button_close">Close</string>
+    <string name="client_cert_not_available">Client certificate not available</string>
 
 </resources>
+
 
