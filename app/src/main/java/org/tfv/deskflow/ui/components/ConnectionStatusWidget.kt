@@ -77,7 +77,7 @@ fun ConnectionStatusLabel(
   val (statusColor, statusShadowColor) = when {
     !connState.isEnabled ->
       MaterialTheme.colorScheme.errorContainer
-    connState.isConnected ->
+    connState.isConnected && connState.ackReceived ->
       extColorScheme.success
     else -> extColorScheme.warning
   }.let { color ->
@@ -91,7 +91,7 @@ fun ConnectionStatusLabel(
           stringResource(
             R.string.connection_status_widget_header_status_stopped
           )
-        connState.isConnected ->
+        connState.isConnected && connState.ackReceived ->
           stringResource(
             R.string.connection_status_widget_header_status_connected
           )
@@ -110,7 +110,7 @@ fun ConnectionStatusLabel(
     color =
       when {
         !connState.isEnabled -> MaterialTheme.colorScheme.onErrorContainer
-        connState.isConnected ->
+        connState.isConnected && connState.ackReceived ->
           extColorScheme.onSuccess
         else -> extColorScheme.onWarning
       },
