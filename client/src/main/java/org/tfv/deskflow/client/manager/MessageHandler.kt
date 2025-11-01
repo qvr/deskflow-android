@@ -144,7 +144,7 @@ class MessageHandler(
       }
 
       is CloseMessage -> {
-        socket.close()
+        socket.stop()
       }
 
       is EnterMessage -> {
@@ -259,9 +259,8 @@ class MessageHandler(
       }
 
       is BusyMessage -> {
-          log.warn { "BUSY MESSAGE RECEIVED, RESET CONNECTION??" }
-      //log.warn { "BUSY MESSAGE RECEIVED, RESETTING CONNECTION" }
-        //socket.dispose()
+        log.warn { "Server already has a connected client with our name, disconnecting to retry" }
+        socket.stop()
       }
 
       is UnknownMessage -> {
@@ -331,7 +330,7 @@ class MessageHandler(
         log.warn {
           "Server did not respond to keep alive in time (${milliSinceLastKeepAlive}ms), closing connection"
         }
-        catch({ socket.close() }) { err: Throwable ->
+        catch({ socket.stop() }) { err: Throwable ->
           log.error(err) {
             "Unable to cleanly close socket after keep alive timeout"
           }
