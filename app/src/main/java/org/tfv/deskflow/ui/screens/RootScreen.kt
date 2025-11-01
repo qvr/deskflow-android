@@ -70,6 +70,7 @@ import org.tfv.deskflow.ext.launchInputMethodServiceSettings
 import org.tfv.deskflow.ext.observeAccessibilityStatus
 import org.tfv.deskflow.ext.requestAccessibilityEnabled
 import org.tfv.deskflow.ext.requestOverlayPermission
+import org.tfv.deskflow.ext.registerForServiceDisconnectionEvents
 import org.tfv.deskflow.services.GlobalInputService
 import org.tfv.deskflow.ui.annotations.PreviewAll
 import org.tfv.deskflow.ui.components.AppState
@@ -79,6 +80,7 @@ import org.tfv.deskflow.ui.components.LifecycleEventHookEffect
 import org.tfv.deskflow.ui.components.LocalAppState
 import org.tfv.deskflow.ui.components.LocalSnackbarHostState
 import org.tfv.deskflow.ui.components.PermissionsNeededDialog
+import org.tfv.deskflow.ui.components.AccessibilityServiceRestartDialog
 import org.tfv.deskflow.ui.components.RootNavHost
 import org.tfv.deskflow.ui.components.FingerprintVerificationDialog
 import org.tfv.deskflow.ui.models.FingerprintVerificationState
@@ -105,6 +107,11 @@ fun RootScreen(appState: IAppState) {
 
   UpdatePermissionsEffect(appState = appState)
   val snackbarHostState = remember { SnackbarHostState() }
+
+  // Track if we should show the accessibility restart dialog
+  val showAccessibilityRestartDialog = remember { mutableStateOf(false) }
+
+  // Listen for accessibility service status changes
   DisposableEffect(Unit) {
     val closeChecker = context.observeAccessibilityStatus(GlobalInputService::class.java, scope = scope) { isEnabled ->
       val isServiceEnabled = context.isAccessibilityServiceEnabled(GlobalInputService::class.java)
@@ -121,6 +128,23 @@ fun RootScreen(appState: IAppState) {
     }
 
     onDispose { closeChecker() }
+  }
+
+  // Listen for service disconnection events (crashes/unbinds while still enabled)
+  DisposableEffect(Unit) {
+    val disconnectionListener = context.registerForServiceDisconnectionEvents(
+      GlobalInputService::class
+    ) {
+      log.warn { "Accessibility service disconnected unexpectedly" }
+      // Check if service is still enabled in settings but not actually running
+      val isStillEnabledInSettings = context.isAccessibilityServiceEnabled(GlobalInputService::class.java)
+      if (isStillEnabledInSettings) {
+        log.warn { "Service is enabled in settings but not running - showing restart dialog" }
+        showAccessibilityRestartDialog.value = true
+      }
+    }
+
+    onDispose { disconnectionListener.close() }
   }
 
   CompositionLocalProvider(
@@ -225,6 +249,18 @@ fun RootScreen(appState: IAppState) {
           fingerprintVerificationState.rejectFingerprint()
         }
       },
+    )
+  }
+
+  // Accessibility service restart dialog - shown when service crashes/disconnects
+  if (showAccessibilityRestartDialog.value) {
+    AccessibilityServiceRestartDialog(
+      onOpenSettings = {
+        context.requestAccessibilityEnabled()
+      },
+      onDismiss = {
+        showAccessibilityRestartDialog.value = false
+      }
     )
   }
 }

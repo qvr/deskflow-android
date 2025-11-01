@@ -76,6 +76,7 @@ import org.tfv.deskflow.components.GlobalKeyboardManager
 import org.tfv.deskflow.ext.canDrawOverlays
 import org.tfv.deskflow.ext.getScreenSize
 import org.tfv.deskflow.ext.sendServiceConnectionEvent
+import org.tfv.deskflow.ext.sendServiceDisconnectionEvent
 
 @OptIn(kotlin.concurrent.atomics.ExperimentalAtomicApi::class)
 @SuppressLint("ServiceCast", "NewApi")
@@ -586,6 +587,14 @@ class GlobalInputService : AccessibilityService() {
    * and remove the mouse pointer view.
    */
   override fun onDestroy() {
+    log.warn { "Accessibility service being destroyed" }
+
+    // Mark service as no longer connected
+    isServiceConnected = false
+
+    // Broadcast that the service is disconnected
+    sendServiceDisconnectionEvent<GlobalInputService>()
+
     serviceScope.cancel()
     serviceClient.unbind()
     hideMousePointer()  // Use the safe hide method instead of direct removeView
@@ -1378,6 +1387,8 @@ class GlobalInputService : AccessibilityService() {
 
     if (!isServiceConnected) {
       log.warn { "Cannot show mouse pointer - accessibility service not yet connected" }
+      // Broadcast that service is disconnected so UI can respond
+      sendServiceDisconnectionEvent<GlobalInputService>()
       return
     }
 
