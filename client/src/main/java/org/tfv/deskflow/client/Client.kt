@@ -92,6 +92,12 @@ class Client(
       if (isEnabled == enabled) return@submit
 
       isEnabled = enabled
+
+      // If disabling and currently connected, disconnect immediately
+      if (!enabled && socket != null) {
+        log.info { "Client disabled, disconnecting immediately" }
+        disconnect()
+      }
     }
   }
 
@@ -306,6 +312,13 @@ class Client(
     ackReceived = false
     isScreenActive = false
     connectionStartTime = null
+
+    // Emit disconnect event before disposing resources
+    // This ensures ConnectionService gets notified even when we manually disconnect
+    if (socket != null) {
+      ClientEventBus.emit(ConnectionEvent.Disconnected)
+    }
+
     socket = disposeOf(socket)
     messageHandler = disposeOf(messageHandler)
   }
