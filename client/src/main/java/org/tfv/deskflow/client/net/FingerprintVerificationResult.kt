@@ -34,6 +34,7 @@ import java.security.cert.X509Certificate
 data class CertificateFingerprint(
   val certificate: X509Certificate,
   val fingerprint: String,
+  val clientAuthRequested: Boolean = false,
 )
 
 /**
@@ -47,6 +48,7 @@ sealed class FingerprintVerificationResult {
   data class Unknown(
     val certificate: X509Certificate,
     val fingerprint: String,
+    val clientAuthRequested: Boolean = false,
   ) : FingerprintVerificationResult()
 
   /**
@@ -56,6 +58,7 @@ sealed class FingerprintVerificationResult {
     val certificate: X509Certificate,
     val fingerprint: String,
     val expectedFingerprint: String,
+    val clientAuthRequested: Boolean = false,
   ) : FingerprintVerificationResult()
 }
 

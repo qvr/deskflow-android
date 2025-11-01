@@ -183,7 +183,8 @@ class ConnectionService : Service() {
           log.info { "Unknown fingerprint, requesting user verification" }
           val result = org.tfv.deskflow.client.net.FingerprintVerificationResult.Unknown(
             certificateFingerprint.certificate,
-            certificateFingerprint.fingerprint
+            certificateFingerprint.fingerprint,
+            certificateFingerprint.clientAuthRequested
           )
           FingerprintVerificationState.getInstance().postChallenge(result) { accepted ->
             if (accepted) {
@@ -210,7 +211,8 @@ class ConnectionService : Service() {
           val result = org.tfv.deskflow.client.net.FingerprintVerificationResult.Mismatch(
             certificateFingerprint.certificate,
             certificateFingerprint.fingerprint,
-            storedFingerprint
+            storedFingerprint,
+            certificateFingerprint.clientAuthRequested
           )
           FingerprintVerificationState.getInstance().postChallenge(result) { accepted ->
             if (accepted) {

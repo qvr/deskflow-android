@@ -172,8 +172,10 @@ fun FingerprintVerificationDialog(
             }
           }
 
-          // Client Certificate Fingerprint (if available)
-          if (clientCertificateFingerprint != null) {
+          // Client Certificate Fingerprint (if available and client auth was requested)
+          if (clientCertificateFingerprint != null &&
+              ((result is FingerprintVerificationResult.Unknown && result.clientAuthRequested) ||
+               (result is FingerprintVerificationResult.Mismatch && result.clientAuthRequested))) {
             Card(
               modifier = Modifier
                 .weight(1f)
@@ -235,7 +237,9 @@ fun FingerprintVerificationDialog(
         }
 
         // Note about verifying both
-        if (clientCertificateFingerprint != null) {
+        if (clientCertificateFingerprint != null &&
+            ((result is FingerprintVerificationResult.Unknown && result.clientAuthRequested) ||
+             (result is FingerprintVerificationResult.Mismatch && result.clientAuthRequested))) {
           Text(
             text = stringResource(R.string.fingerprint_dialog_verify_both),
             style = MaterialTheme.typography.bodySmall,

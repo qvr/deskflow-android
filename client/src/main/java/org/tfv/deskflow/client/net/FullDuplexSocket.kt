@@ -327,8 +327,13 @@ class FullDuplexSocket(
                       val fingerprint = FingerprintManager.computeFingerprint(serverCert)
                       log.info { "Server fingerprint for $host:$port: $fingerprint" }
 
+                      // Check if client certificate was actually used in this connection
+                      val localCerts = sslSession.localCertificates
+                      val clientAuthRequested = localCerts != null && localCerts.isNotEmpty()
+                      log.info { "Client certificate used in connection: $clientAuthRequested" }
+
                       // Pass certificate data to app layer for verification
-                      val certData = CertificateFingerprint(serverCert, fingerprint)
+                      val certData = CertificateFingerprint(serverCert, fingerprint, clientAuthRequested)
 
                       // Record timestamp before waiting for user decision
                       val verificationStartTime = System.currentTimeMillis()
