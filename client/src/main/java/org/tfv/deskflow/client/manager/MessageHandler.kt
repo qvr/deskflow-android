@@ -190,6 +190,12 @@ class MessageHandler(
 
       is InfoAckMessage -> {
         ClientEventBus.emit(ScreenEvent.AckReceived)
+        // Start keep-alive monitoring after handshake completes
+        if (keepAliveFuture == null || keepAliveFuture?.isDone == true) {
+          log.info { "InfoAck received, starting keep-alive monitoring" }
+          keepAliveServerTimestamp = System.currentTimeMillis()
+          scheduleKeepAliveCheck()
+        }
       }
 
       is KeyDownMessage -> {
@@ -367,7 +373,7 @@ class MessageHandler(
   }
 
   companion object {
-    private const val KEEP_ALIVE_TIMEOUT: Long = 7000L
+    private const val KEEP_ALIVE_TIMEOUT: Long = 9000L
     private val log =
       KLoggingManager.forwardingLogger(MessageHandler::class.java.simpleName)
   }

@@ -254,6 +254,8 @@ class FullDuplexSocket(
       selector = Selector.open()
       val readBuffer = DynamicByteBuffer()
       val sel = selector!!
+      val connectStartTime = System.currentTimeMillis()
+      val connectTimeoutMs = 9000L
 
       channel =
         when {
@@ -291,9 +293,19 @@ class FullDuplexSocket(
               register(sel, SelectionKey.OP_CONNECT)
             }
         }
+      var tcpConnected = false
       while (!Thread.currentThread().isInterrupted) {
-        // blocks until an event or wakeup()
-        sel.select()
+        // Block with timeout to allow periodic wake-ups for dead connection detection
+        sel.select(1000L) // 1 second timeout
+
+        // Check for connect timeout
+        if (!tcpConnected) {
+          val elapsed = System.currentTimeMillis() - connectStartTime
+          if (elapsed > connectTimeoutMs) {
+            log.warn { "Connection timeout after ${elapsed}ms" }
+            throw java.io.IOException("Connection timeout after ${elapsed}ms")
+          }
+        }
 
         // Get selected keys
         val iter = sel.selectedKeys().iterator()
@@ -306,6 +318,7 @@ class FullDuplexSocket(
             key.isConnectable -> {
               val sc = key.channel() as SocketChannel
               if (sc.finishConnect()) {
+                tcpConnected = true
                 if (useTls) {
                   doHandshake(sc, sel)
 

@@ -48,20 +48,37 @@ class SingletonThreadExecutor(val threadName: String) : AbstractDisposable() {
 
   val isExecutorThread: Boolean
     get() = Thread.currentThread() == thread
-  
+
   @Suppress("DiscouragedApi")
   fun scheduleAtFixedRate(runnable: Runnable, period: Long, initialDelay: Long = 0, timeUnit: TimeUnit = TimeUnit.MILLISECONDS) {
     executor.scheduleAtFixedRate(runnable, initialDelay, period, timeUnit)
   }
-  
+
   fun scheduleWithFixedDelay(runnable: Runnable, delay: Long, initialDelay: Long = 0, timeUnit: TimeUnit = TimeUnit.MILLISECONDS) {
     executor.scheduleWithFixedDelay(runnable, initialDelay, delay, timeUnit)
   }
-  
+
+  /**
+   * Schedules a task with fixed delay that will never be cancelled due to exceptions.
+   *
+   * Wraps the runnable with exception handling to ensure that any thrown exception
+   * will not suppress subsequent executions.
+   */
+  fun scheduleWithFixedDelayUncancelable(runnable: Runnable, delay: Long, initialDelay: Long = 0, timeUnit: TimeUnit = TimeUnit.MILLISECONDS) {
+    val safeRunnable = Runnable {
+      try {
+        runnable.run()
+      } catch (_: Throwable) {
+        // Silently swallow all exceptions to prevent task cancellation
+      }
+    }
+    executor.scheduleWithFixedDelay(safeRunnable, initialDelay, delay, timeUnit)
+  }
+
   fun schedule(runnable: Runnable, delay: Long, timeUnit: TimeUnit = TimeUnit.MILLISECONDS) {
     executor.schedule(runnable, delay, timeUnit)
   }
-  
+
   fun <T> submit(runnable: () -> T): Future<T>? {
     synchronized(threadLock) {
       if (executor.isShutdown) {

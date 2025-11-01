@@ -87,14 +87,22 @@ class Client(
       if (isEnabled == enabled) return@submit
 
       isEnabled = enabled
+
+      // If disabling and currently connected, disconnect immediately
+      if (!enabled && socket != null) {
+        log.info { "Client disabled, disconnecting immediately" }
+        disconnect()
+      }
     }
   }
 
   private fun scheduleConnectionCheck() {
-    connectionExecutor.scheduleWithFixedDelay(
+    connectionExecutor.scheduleWithFixedDelayUncancelable(
       delay = 1000L,
       runnable = {
         catch({
+          log.trace { "Connection check: isEnabled=$isEnabled, isConnected=$isConnected, isConnecting=$isConnecting, socket=$socket" }
+
           when {
             !isEnabled -> {
               log.info { "Connection is disabled" }
@@ -104,7 +112,7 @@ class Client(
               }
             }
             isConnected || isConnecting -> {
-              log.debug { "Socket is already connected or connecting" }
+              log.info { "Socket is already connected or connecting" }
               // Check for handshake timeout
               if (isConnected && !ackReceived) {
                 val startTime = connectionStartTime
@@ -118,7 +126,7 @@ class Client(
               }
             }
             else -> {
-              log.debug { "Attempting to connect..." }
+              log.info { "Attempting to connect..." }
               connect()
             }
           }
@@ -206,8 +214,11 @@ class Client(
           is FullDuplexSocket.SocketEvent.DisconnectEvent -> {
             log.info { "DisconnectEvent -> ConnectionEvent.Disconnected" }
             isConnecting = false
-            connectionExecutor.submit { disconnect() }
+            // Clear socket reference immediately
+            // The full cleanup will happen in disconnect() which is scheduled below
+            this.socket = null
             ClientEventBus.emit(ConnectionEvent.Disconnected)
+            connectionExecutor.submit { disconnect() }
           }
 
           is FullDuplexSocket.SocketEvent.ReceiveEvent -> {
@@ -215,7 +226,11 @@ class Client(
           }
 
           is FullDuplexSocket.SocketEvent.ErrorEvent -> {
+            log.info { "ErrorEvent -> ConnectionEvent.Disconnected" }
             isConnecting = false
+            // Clear socket reference immediately
+            this.socket = null
+            ClientEventBus.emit(ConnectionEvent.Disconnected)
             connectionExecutor.submit { disconnect() }
           }
         }
@@ -301,8 +316,16 @@ class Client(
     ackReceived = false
     isScreenActive = false
     connectionStartTime = null
+
+    // Emit disconnect event only if we still have a socket reference
+    // (if socket is already null, it was already emitted in connect() event handler)
+    val hadSocket = socket != null
     socket = disposeOf(socket)
     messageHandler = disposeOf(messageHandler)
+
+    if (hadSocket) {
+      ClientEventBus.emit(ConnectionEvent.Disconnected)
+    }
   }
 
   /** Wait for socket to close if connected */
