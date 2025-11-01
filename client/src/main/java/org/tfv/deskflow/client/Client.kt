@@ -64,6 +64,8 @@ class Client(
 
   private var isConnecting: Boolean = false
 
+  private var connectionStartTime: Long? = null
+
   private val connectionExecutor =
     SingletonThreadExecutor("ConnectionEventLoopThread")
 
@@ -103,6 +105,17 @@ class Client(
             }
             isConnected || isConnecting -> {
               log.debug { "Socket is already connected or connecting" }
+              // Check for handshake timeout
+              if (isConnected && !ackReceived) {
+                val startTime = connectionStartTime
+                if (startTime != null) {
+                  val elapsed = System.currentTimeMillis() - startTime
+                  if (elapsed > 9000L) { // 9 seconds is protocol spec for server's keepalive timeout, reusing that here
+                    log.warn { "Handshake timeout after ${elapsed}ms, disconnecting" }
+                    disconnect()
+                  }
+                }
+              }
             }
             else -> {
               log.debug { "Attempting to connect..." }
@@ -186,6 +199,7 @@ class Client(
           is FullDuplexSocket.SocketEvent.ConnectEvent -> {
             log.info { "ConnectEvent -> ConnectionEvent.Connected" }
             isConnecting = false
+            connectionStartTime = System.currentTimeMillis()
             ClientEventBus.emit(ConnectionEvent.Connected)
           }
 
@@ -220,6 +234,7 @@ class Client(
     when (event) {
       is ScreenEvent.AckReceived -> {
         ackReceived = true
+        connectionStartTime = null // Clear timeout tracking after successful handshake
       }
       is ScreenEvent.Enter -> {
         isScreenActive = true
@@ -285,6 +300,7 @@ class Client(
     isConnecting = false
     ackReceived = false
     isScreenActive = false
+    connectionStartTime = null
     socket = disposeOf(socket)
     messageHandler = disposeOf(messageHandler)
   }
