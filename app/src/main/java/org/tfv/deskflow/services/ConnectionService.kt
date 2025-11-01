@@ -431,6 +431,7 @@ class ConnectionService : Service() {
           it.copy(
             isConnected = connected,
             ackReceived = if (connected) it.ackReceived else false,
+            screen = it.screen.copy(isActive = false),
           )
         }
       }
