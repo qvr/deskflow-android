@@ -506,7 +506,52 @@ class FullDuplexSocket(
       chain: Array<X509Certificate>,
       authType: String,
     ) {
+      // Verify server certificate complies with Deskflow protocol requirements
+      if (chain.isEmpty()) {
+        throw java.security.cert.CertificateException("Server certificate chain is empty")
+      }
 
+      val serverCert = chain[0]
+      val publicKey = serverCert.publicKey
+
+      // Verify key algorithm is RSA or DSA
+      when (publicKey.algorithm) {
+        "RSA" -> {
+          // Verify RSA key size is at least 2048 bits
+          if (publicKey is java.security.interfaces.RSAPublicKey) {
+            val keySize = publicKey.modulus.bitLength()
+            if (keySize < 2048) {
+              throw java.security.cert.CertificateException(
+                "Server RSA key size must be at least 2048 bits, but found: $keySize bits"
+              )
+            }
+          } else {
+            throw java.security.cert.CertificateException(
+              "Server public key is not an RSA key"
+            )
+          }
+        }
+        "DSA" -> {
+          // Verify DSA key size is at least 2048 bits
+          if (publicKey is java.security.interfaces.DSAPublicKey) {
+            val keySize = publicKey.params.p.bitLength()
+            if (keySize < 2048) {
+              throw java.security.cert.CertificateException(
+                "Server DSA key size must be at least 2048 bits, but found: $keySize bits"
+              )
+            }
+          } else {
+            throw java.security.cert.CertificateException(
+              "Server public key is not a DSA key"
+            )
+          }
+        }
+        else -> {
+          throw java.security.cert.CertificateException(
+            "Server certificate must use RSA or DSA key algorithm, but found: ${publicKey.algorithm}"
+          )
+        }
+      }
     }
 
     @Suppress("TrustAllX509TrustManager")
