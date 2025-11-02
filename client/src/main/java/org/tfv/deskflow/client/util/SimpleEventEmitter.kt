@@ -57,7 +57,9 @@ open class SimpleEventEmitter<Payload> : ISimpleEventEmitter<Payload> {
 
     /** Emit passing along an optional [payload]. */
     override fun emit(payload: Payload) {
-        listeners.forEach { it(payload) }
+        // Create a copy to avoid ConcurrentModificationException
+        // if a listener modifies the list during iteration (e.g., once() wrapper)
+        listeners.toList().forEach { it(payload) }
     }
 
     /** Remove all listeners for [event], or all events if [event] is null. */
