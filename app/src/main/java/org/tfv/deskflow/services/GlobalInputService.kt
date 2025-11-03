@@ -539,7 +539,7 @@ class GlobalInputService : AccessibilityService() {
 
         // When disconnected or disabled, reset IME tracking state
         if (!state.isConnected || !state.isEnabled) {
-          log.info { "Connection lost or disabled, resetting IME state" }
+          log.debug { "Connection lost or disabled, resetting IME state" }
 
           // Reset IME picker tracking
           pickerShownForPackage = null
@@ -599,7 +599,7 @@ class GlobalInputService : AccessibilityService() {
    *
    * @param x The X coordinate where to tap
    * @param y The Y coordinate where to tap
-   * @param duration How long to hold the touch (100ms = click, 500ms+ = long press, 1000ms+ = context menu)
+   * @param duration How long to hold the touch in milliseconds
    *
    * > Example: Used for left clicks, middle clicks (long press), and right clicks (context menu).
    */
@@ -640,7 +640,7 @@ class GlobalInputService : AccessibilityService() {
 
     val clampedFingerCount = fingerCount.coerceIn(1, 3)
 
-    log.info { "Starting speculative hold at [$x, $y] with $clampedFingerCount finger(s)" }
+    log.debug { "Starting speculative hold at [$x, $y] with $clampedFingerCount finger(s)" }
 
     dragGestureInProgress = true
 
@@ -679,7 +679,7 @@ class GlobalInputService : AccessibilityService() {
 
     dispatchGesture(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
-        log.info { "Speculative hold gesture dispatched successfully ($clampedFingerCount finger(s))" }
+        log.debug { "Speculative hold gesture dispatched successfully ($clampedFingerCount finger(s))" }
         dragGestureInProgress = false
         // With willContinue=true, this will complete almost immediately (~20ms)
         // The drag state remains active - we're waiting for either:
@@ -689,7 +689,7 @@ class GlobalInputService : AccessibilityService() {
 
         // Check if we already have a pending end gesture (a very fast click happened)
         if (activeDragState?.isEnding == true) {
-          log.info { "Dispatching deferred end gesture after speculative hold completed" }
+          log.debug { "Dispatching deferred end gesture after speculative hold completed" }
           dispatchFinalStroke()
         }
       }
@@ -739,7 +739,7 @@ class GlobalInputService : AccessibilityService() {
     // Only dispatch if we haven't already reached the target position
     if (dragState.lastDispatchedX == dragState.targetX &&
         dragState.lastDispatchedY == dragState.targetY) {
-      log.info { "Already at target position [${dragState.targetX}, ${dragState.targetY}], skipping" }
+      log.debug { "Already at target position [${dragState.targetX}, ${dragState.targetY}], skipping" }
       return
     }
 
@@ -754,7 +754,7 @@ class GlobalInputService : AccessibilityService() {
     val toX = dragState.targetX
     val toY = dragState.targetY
 
-    log.info { "Dispatching drag continuation from [$fromX, $fromY] to [$toX, $toY] (${lastStrokes.size} finger(s))" }
+    log.debug { "Dispatching drag continuation from [$fromX, $fromY] to [$toX, $toY] (${lastStrokes.size} finger(s))" }
 
     dragGestureInProgress = true
 
@@ -789,7 +789,7 @@ class GlobalInputService : AccessibilityService() {
 
     dispatchGesture(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
-        log.info { "Drag continuation completed" }
+        log.debug { "Drag continuation completed" }
         dragGestureInProgress = false
 
         // If position has changed while we were dispatching, send another continuation
@@ -824,7 +824,7 @@ class GlobalInputService : AccessibilityService() {
 
     // If a gesture is in progress, let it complete first
     if (dragGestureInProgress) {
-      log.info { "Gesture in progress, will end after completion at [$endX, $endY]" }
+      log.debug { "Gesture in progress, will end after completion at [$endX, $endY]" }
       return
     }
 
@@ -853,9 +853,9 @@ class GlobalInputService : AccessibilityService() {
     val isSpeculativeHoldClick = dragState.initialHoldDuration == 0L
 
     if (isSpeculativeHoldClick) {
-      log.info { "Ending speculative hold as click at [$endX, $endY] (${lastStrokes.size} finger(s))" }
+      log.debug { "Ending speculative hold as click at [$endX, $endY] (${lastStrokes.size} finger(s))" }
     } else {
-      log.info { "Ending drag gesture from [${dragState.lastDispatchedX}, ${dragState.lastDispatchedY}] to [$endX, $endY] (${lastStrokes.size} finger(s))" }
+      log.debug { "Ending drag gesture from [${dragState.lastDispatchedX}, ${dragState.lastDispatchedY}] to [$endX, $endY] (${lastStrokes.size} finger(s))" }
     }
 
     dragGestureInProgress = true
@@ -886,7 +886,7 @@ class GlobalInputService : AccessibilityService() {
 
     dispatchGesture(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
-        log.info { "Drag end gesture completed" }
+        log.debug { "Drag end gesture completed" }
         activeDragState = null
         dragGestureInProgress = false
       }
@@ -951,7 +951,7 @@ class GlobalInputService : AccessibilityService() {
             if (dragState.initialHoldDuration == 0L && isDragMovement(buttonState.downX, buttonState.downY, currentX, currentY)) {
               // Convert speculative hold to drag
               val buttonDownDuration = System.currentTimeMillis() - buttonState.downTime
-              log.info { "Converting speculative hold to drag: from [${buttonState.downX},${buttonState.downY}] to [$currentX,$currentY], held for ${buttonDownDuration}ms" }
+              log.debug { "Converting speculative hold to drag: from [${buttonState.downX},${buttonState.downY}] to [$currentX,$currentY], held for ${buttonDownDuration}ms" }
               dragState.initialHoldDuration = buttonDownDuration
               dragState.targetX = currentX.toFloat()
               dragState.targetY = currentY.toFloat()
@@ -987,7 +987,7 @@ class GlobalInputService : AccessibilityService() {
             if (dragState.initialHoldDuration == 0L && isDragMovement(buttonState.downX, buttonState.downY, newX, newY)) {
               // Convert speculative hold to drag
               val buttonDownDuration = System.currentTimeMillis() - buttonState.downTime
-              log.info { "Converting speculative hold to drag (relative): from [${buttonState.downX},${buttonState.downY}] to [$newX,$newY], held for ${buttonDownDuration}ms" }
+              log.debug { "Converting speculative hold to drag (relative): from [${buttonState.downX},${buttonState.downY}] to [$newX,$newY], held for ${buttonDownDuration}ms" }
               dragState.initialHoldDuration = buttonDownDuration
               dragState.targetX = newX.toFloat()
               dragState.targetY = newY.toFloat()
@@ -1014,7 +1014,7 @@ class GlobalInputService : AccessibilityService() {
           downX = mousePointerLayout.x,
           downY = mousePointerLayout.y
         )
-        log.info { "Mouse button down: id=${event.id}, pos=[${mousePointerLayout.x}, ${mousePointerLayout.y}]" }
+        log.debug { "Mouse button down: id=${event.id}, pos=[${mousePointerLayout.x}, ${mousePointerLayout.y}]" }
 
         // For left button (id=1), start a speculative hold gesture immediately
         // This provides immediate feedback and can be converted to drag if mouse moves
@@ -1040,7 +1040,7 @@ class GlobalInputService : AccessibilityService() {
         val currentX = mousePointerLayout.x.toFloat()
         val currentY = mousePointerLayout.y.toFloat()
 
-        log.info { "Mouse button up: id=$buttonId, pos=[$currentX, $currentY]" }
+        log.debug { "Mouse button up: id=$buttonId, pos=[$currentX, $currentY]" }
 
         // Check if we have an active drag gesture
         val dragState = activeDragState
@@ -1051,7 +1051,7 @@ class GlobalInputService : AccessibilityService() {
             val clickDuration = buttonState?.let {
               System.currentTimeMillis() - it.downTime
             } ?: 100L
-            log.info { "Ending speculative hold (no drag occurred) - will act as click with duration ${clickDuration}ms" }
+            log.debug { "Ending speculative hold (no drag occurred) - will act as click with duration ${clickDuration}ms" }
 
             // Clear button state now
             mouseButtonDown = null
@@ -1061,7 +1061,7 @@ class GlobalInputService : AccessibilityService() {
             return
           } else {
             // This was an actual drag operation
-            log.info { "Ending active drag operation with button $buttonId" }
+            log.debug { "Ending active drag operation with button $buttonId" }
             mouseButtonDown = null // Clear button state
             endDragGesture(currentX, currentY)
             return
@@ -1083,12 +1083,12 @@ class GlobalInputService : AccessibilityService() {
         when (buttonId) {
           4 -> {
             // Side Back button - trigger Android Back action
-            log.info { "Side Back button (button 4) - performing Back action" }
+            log.debug { "Side Back button (button 4) - performing Back action" }
             performGlobalAction(GLOBAL_ACTION_BACK)
           }
           5 -> {
             // Side Forward button - trigger Recent Apps (task switcher)
-            log.info { "Side Forward button (button 5) - performing Recent Apps action" }
+            log.debug { "Side Forward button (button 5) - performing Recent Apps action" }
             performGlobalAction(GLOBAL_ACTION_RECENTS)
           }
           else -> {
@@ -1156,11 +1156,11 @@ class GlobalInputService : AccessibilityService() {
       .addStroke(stroke2)
       .build()
 
-    log.info { "Spread gesture (zoom in) at [$pointerX, $pointerY]" }
+    log.debug { "Spread gesture (zoom in) at [$pointerX, $pointerY]" }
 
     dispatchGesture(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
-        log.info { "Spread stroke completed, releasing with delay to stop gesture inertia" }
+        log.debug { "Spread stroke completed, releasing with delay to stop gesture inertia" }
         // Release the spread gesture by continuing the existing strokes and lifting both fingers from their held positions.
         val point1 = Path().apply { moveTo(pointerX + 75, pointerY) }
         val point2 = Path().apply { moveTo(pointerX - 75, pointerY) }
@@ -1212,11 +1212,11 @@ class GlobalInputService : AccessibilityService() {
       .addStroke(stroke2)
       .build()
 
-    log.info { "Pinch gesture (zoom out) at [$pointerX, $pointerY]" }
+    log.debug { "Pinch gesture (zoom out) at [$pointerX, $pointerY]" }
 
     dispatchGesture(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
-        log.info { "Pinch stroke completed, releasing with delay to stop gesture inertia" }
+        log.debug { "Pinch stroke completed, releasing with delay to stop gesture inertia" }
         // Release the pinch gesture by continuing the existing strokes and lifting both fingers from their held positions.
         val point1 = Path().apply { moveTo(pointerX + 25, pointerY) }
         val point2 = Path().apply { moveTo(pointerX - 25, pointerY) }
@@ -1302,7 +1302,7 @@ class GlobalInputService : AccessibilityService() {
     val stroke = StrokeDescription(path, 0, 150)
     val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
-    log.info {
+    log.debug {
       "Scroll swipe: up=$up, homeScreen=$isHomeScreenActive, x=$swipeX, startY=$clampedStartY, endY=$clampedEndY, distance=${abs(clampedEndY - clampedStartY)}"
     }
 
