@@ -40,6 +40,7 @@ import android.content.pm.PackageManager
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -103,6 +104,10 @@ class GlobalInputService : AccessibilityService() {
 
   private val notificationManager by lazy {
     getSystemService(NotificationManager::class.java)
+  }
+
+  private val displayManager by lazy {
+    getSystemService(DisplayManager::class.java)
   }
 
   /**
@@ -193,6 +198,13 @@ class GlobalInputService : AccessibilityService() {
   @Volatile private var isServiceConnected = false
 
   /**
+   * The display ID where gestures should be dispatched.
+   * Updated when showing the mouse pointer to match the active display.
+   * This ensures touch events are sent to the correct display
+   */
+  @Volatile private var activeDisplayId: Int = android.view.Display.DEFAULT_DISPLAY
+
+  /**
    * Tracks the current mouse button state for drag detection.
    * Stores button ID and the position where the button was pressed.
    */
@@ -261,6 +273,47 @@ class GlobalInputService : AccessibilityService() {
 
   /** WindowManager instance for managing the mouse pointer view. */
   private lateinit var windowManager: WindowManager
+
+  /**
+   * Listener for display add/remove/change events.
+   * Used to detect when for example PC mode is toggled (creates/removes virtual display).
+   */
+  private val displayListener = object : DisplayManager.DisplayListener {
+    override fun onDisplayAdded(displayId: Int) {
+      log.info { "Display added: ID=$displayId" }
+      logDisplayInformation()
+
+      // If mouse pointer is visible, we may need to move it to the new display
+      if (mousePointerVisible) {
+        log.info { "Mouse pointer is visible, checking if display change requires pointer relocation" }
+        // Hide and re-show to trigger display detection
+        hideMousePointer()
+        Handler(Looper.getMainLooper()).postDelayed({
+          showMousePointer()
+        }, 100)
+      }
+    }
+
+    override fun onDisplayRemoved(displayId: Int) {
+      log.info { "Display removed: ID=$displayId" }
+      logDisplayInformation()
+
+      // If mouse pointer is visible, we may need to move it back to primary display
+      if (mousePointerVisible) {
+        log.info { "Mouse pointer is visible, checking if display change requires pointer relocation" }
+        // Hide and re-show to trigger display detection
+        hideMousePointer()
+        Handler(Looper.getMainLooper()).postDelayed({
+          showMousePointer()
+        }, 100)
+      }
+    }
+
+    override fun onDisplayChanged(displayId: Int) {
+      log.debug { "Display changed: ID=$displayId" }
+      // Don't need to do anything for simple display changes like brightness
+    }
+  }
 
   private val serviceScope =
     CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -494,7 +547,17 @@ class GlobalInputService : AccessibilityService() {
     mousePointerLayout.x = 200
     mousePointerLayout.y = 200
 
+    // Initialize WindowManager to default - will be properly initialized in onServiceConnected()
+    // when the accessibility service context is fully ready
     windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+    // Log display information at startup
+    log.info { "Service onCreate - logging initial display configuration" }
+    logDisplayInformation()
+
+    // Register display listener to detect display changes such as PC mode toggle on some devices
+    displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+    log.debug { "Display listener registered" }
 
     startService(Intent(applicationContext, ConnectionService::class.java))
     serviceClient.bind()
@@ -580,6 +643,14 @@ class GlobalInputService : AccessibilityService() {
   override fun onDestroy() {
     log.warn { "Accessibility service being destroyed" }
 
+    // Unregister display listener
+    try {
+      displayManager.unregisterDisplayListener(displayListener)
+      log.debug { "Display listener unregistered" }
+    } catch (err: Exception) {
+      log.error(err) { "Error unregistering display listener" }
+    }
+
     // Mark service as no longer connected
     isServiceConnected = false
 
@@ -641,6 +712,94 @@ class GlobalInputService : AccessibilityService() {
         }
       }
     }
+
+    // Log display information after configuration change
+    logDisplayInformation()
+  }
+
+  /**
+   * Log detailed information about all displays on the device.
+   */
+  private fun logDisplayInformation() {
+    try {
+      val displays = displayManager.displays
+      log.info { "=== Display Information (${displays.size} display(s)) ===" }
+
+      displays.forEachIndexed { index, display ->
+        val metrics = resources.displayMetrics
+        val realMetrics = android.util.DisplayMetrics()
+        display.getRealMetrics(realMetrics)
+
+        log.info {
+          """
+          Display #$index (ID: ${display.displayId}):
+            Name: ${display.name}
+            State: ${displayStateToString(display.state)}
+            Size (resources): ${metrics.widthPixels}x${metrics.heightPixels}
+            Real Size: ${realMetrics.widthPixels}x${realMetrics.heightPixels}
+            Density: ${metrics.density}
+            Refresh Rate: ${display.refreshRate} Hz
+            Rotation: ${rotationToString(display.rotation)}
+            Is Default: ${display.displayId == android.view.Display.DEFAULT_DISPLAY}
+            Flags: ${display.flags}
+          """.trimIndent()
+        }
+      }
+
+      // Also log which display the WindowManager is using
+      val defaultDisplay = windowManager.defaultDisplay
+      log.info { "WindowManager default display ID: ${defaultDisplay.displayId}" }
+
+    } catch (err: Exception) {
+      log.error(err) { "Error logging display information" }
+    }
+  }
+
+  private fun displayStateToString(state: Int): String {
+    return when (state) {
+      android.view.Display.STATE_OFF -> "OFF"
+      android.view.Display.STATE_ON -> "ON"
+      android.view.Display.STATE_DOZE -> "DOZE"
+      android.view.Display.STATE_DOZE_SUSPEND -> "DOZE_SUSPEND"
+      android.view.Display.STATE_ON_SUSPEND -> "ON_SUSPEND"
+      android.view.Display.STATE_VR -> "VR"
+      else -> "UNKNOWN($state)"
+    }
+  }
+
+  private fun rotationToString(rotation: Int): String {
+    return when (rotation) {
+      android.view.Surface.ROTATION_0 -> "0° (Portrait)"
+      android.view.Surface.ROTATION_90 -> "90° (Landscape)"
+      android.view.Surface.ROTATION_180 -> "180° (Reverse Portrait)"
+      android.view.Surface.ROTATION_270 -> "270° (Reverse Landscape)"
+      else -> "UNKNOWN($rotation)"
+    }
+  }
+
+  /**
+   * Get the active display where we want to show the mouse pointer.
+   */
+  private fun getActiveDisplay(): android.view.Display {
+    try {
+      val displays = displayManager.displays
+
+      log.debug { "Selecting active display from ${displays.size} available display(s)" }
+
+      // Single display - use it
+      if (displays.size == 1) {
+        return displays[0]
+      }
+
+      // Multiple displays - use the one with the largest display ID
+      val activeDisplay = displays.maxByOrNull { it.displayId }!!
+      log.info { "Using display with largest ID: ${activeDisplay.displayId} (${activeDisplay.name})" }
+      return activeDisplay
+
+    } catch (err: Exception) {
+      log.error(err) { "Error selecting display, using first display" }
+      return displayManager.displays[0]
+    }
   }
 
   /**
@@ -663,6 +822,7 @@ class GlobalInputService : AccessibilityService() {
     val path = Path().apply { moveTo(x, y) }
     val gesture =
       GestureDescription.Builder()
+        .setDisplayId(activeDisplayId)
         .addStroke(StrokeDescription(path, 0, duration))
         .build()
     dispatchGesture(gesture, gestureResultCallback, globalInputHandler)
@@ -698,7 +858,7 @@ class GlobalInputService : AccessibilityService() {
     // Note: With willContinue=true, this will complete almost immediately regardless of duration
     // The drag state remains active until mouse moves (-> drag) or button up (-> release)
     val strokes = mutableListOf<StrokeDescription>()
-    val gestureBuilder = GestureDescription.Builder()
+    val gestureBuilder = GestureDescription.Builder().setDisplayId(activeDisplayId)
 
     for (fingerIndex in 0 until clampedFingerCount) {
       val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
@@ -810,7 +970,7 @@ class GlobalInputService : AccessibilityService() {
 
     // Continue each finger's stroke independently with their relative offsets
     val continuedStrokes = mutableListOf<StrokeDescription>()
-    val gestureBuilder = GestureDescription.Builder()
+    val gestureBuilder = GestureDescription.Builder().setDisplayId(activeDisplayId)
 
     for ((fingerIndex, lastStroke) in lastStrokes.withIndex()) {
       val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
@@ -912,7 +1072,7 @@ class GlobalInputService : AccessibilityService() {
 
     // End each finger's stroke independently with their relative offsets
     val finalStrokes = mutableListOf<StrokeDescription>()
-    val gestureBuilder = GestureDescription.Builder()
+    val gestureBuilder = GestureDescription.Builder().setDisplayId(activeDisplayId)
 
     for ((fingerIndex, lastStroke) in lastStrokes.withIndex()) {
       val (offsetX, offsetY) = multiTouchFingerOffsets[fingerIndex]
@@ -1202,6 +1362,7 @@ class GlobalInputService : AccessibilityService() {
     val stroke2 = StrokeDescription(path2, 5, 200, true)
 
     val gesture = GestureDescription.Builder()
+      .setDisplayId(activeDisplayId)
       .addStroke(stroke1)
       .addStroke(stroke2)
       .build()
@@ -1220,6 +1381,7 @@ class GlobalInputService : AccessibilityService() {
         val lastStroke2 = stroke2.continueStroke(point2, 50, 50, false)
 
         val releaseGesture = GestureDescription.Builder()
+          .setDisplayId(activeDisplayId)
           .addStroke(lastStroke1)
           .addStroke(lastStroke2)
           .build()
@@ -1258,6 +1420,7 @@ class GlobalInputService : AccessibilityService() {
     val stroke2 = StrokeDescription(path2, 5, 200, true)
 
     val gesture = GestureDescription.Builder()
+      .setDisplayId(activeDisplayId)
       .addStroke(stroke1)
       .addStroke(stroke2)
       .build()
@@ -1276,6 +1439,7 @@ class GlobalInputService : AccessibilityService() {
         val lastStroke2 = stroke2.continueStroke(point2, 50, 50, false)
 
         val releaseGesture = GestureDescription.Builder()
+          .setDisplayId(activeDisplayId)
           .addStroke(lastStroke1)
           .addStroke(lastStroke2)
           .build()
@@ -1350,7 +1514,10 @@ class GlobalInputService : AccessibilityService() {
 
     // Swipe for 150ms for more responsive scrolling
     val stroke = StrokeDescription(path, 0, 150)
-    val gesture = GestureDescription.Builder().addStroke(stroke).build()
+    val gesture = GestureDescription.Builder()
+      .setDisplayId(activeDisplayId)
+      .addStroke(stroke)
+      .build()
 
     log.debug {
       "Scroll swipe: up=$up, homeScreen=$isHomeScreenActive, x=$swipeX, startY=$clampedStartY, endY=$clampedEndY, distance=${abs(clampedEndY - clampedStartY)}"
@@ -1361,11 +1528,10 @@ class GlobalInputService : AccessibilityService() {
 
   /**
    * Reinitialize the mouse pointer view and window manager.
-   * Called when we detect that the window manager token is invalid (e.g., after app update).
    * Returns true if reinitialization succeeded and view is ready to be added.
    */
   private fun reinitializeMousePointer(): Boolean {
-    log.info { "Reinitializing mouse pointer after window manager error" }
+    log.info { "Reinitializing mouse pointer" }
 
     try {
       // Try to remove old view if it exists (may fail, that's ok)
@@ -1385,8 +1551,15 @@ class GlobalInputService : AccessibilityService() {
       // Recreate the view - this gets a fresh view instance
       mousePointerView = View.inflate(this, R.layout.mouse_pointer, null)
 
-      // Get a fresh window manager instance - critical for fixing token issues
-      windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+      // Get the active display and its WindowManager
+      val activeDisplay = getActiveDisplay()
+      val displayContext = createDisplayContext(activeDisplay)
+      windowManager = displayContext.getSystemService(WINDOW_SERVICE) as WindowManager
+
+      // Update active display ID for gesture dispatching
+      activeDisplayId = activeDisplay.displayId
+
+      log.debug { "Reinitialized WindowManager for display ID: ${activeDisplay.displayId}" }
 
       // Recreate layout params with fresh instance
       mousePointerLayout = WindowManager.LayoutParams(
@@ -1440,23 +1613,45 @@ class GlobalInputService : AccessibilityService() {
       return
     }
 
+    // Log display configuration before showing pointer
+    log.info { "Attempting to show mouse pointer - checking display configuration" }
+    logDisplayInformation()
+
     try {
+      // Detect the active display
+      val activeDisplay = getActiveDisplay()
+      val targetDisplayId = activeDisplay.displayId
+
+      // Check if our current WindowManager is for a different display
+      if (activeDisplayId != targetDisplayId) {
+        log.info { "WindowManager display mismatch: current=$activeDisplayId, target=$targetDisplayId - reinitializing" }
+        if (!reinitializeMousePointer()) {
+          log.error { "Failed to reinitialize WindowManager for display $targetDisplayId" }
+          return
+        }
+        log.info { "WindowManager reinitialized successfully for display $targetDisplayId" }
+      }
+
+      log.info { "Adding mouse pointer to display ID: $targetDisplayId" }
+
       windowManager.addView(mousePointerView, mousePointerLayout)
+
       mousePointerVisible = true
       screenWakelockManager.onMouseMovement()
-      log.info { "Mouse pointer shown" }
+      log.info { "Mouse pointer shown on display $targetDisplayId" }
     } catch (err: android.view.WindowManager.BadTokenException) {
       log.error(err) { "BadTokenException when showing mouse pointer - window manager token invalid, attempting reinitialize" }
       mousePointerVisible = false
 
-      // Try to reinitialize
+      // Try to reinitialize as a fallback
       if (reinitializeMousePointer()) {
-        // Reinitialization succeeded, try adding view one more time
+        // Reinitialization succeeded, try adding view one more time with fresh WindowManager
         try {
+          // reinitializeMousePointer() has already updated windowManager and activeDisplayId
           windowManager.addView(mousePointerView, mousePointerLayout)
           mousePointerVisible = true
           screenWakelockManager.onMouseMovement()
-          log.info { "Mouse pointer shown successfully after reinitialization" }
+          log.info { "Mouse pointer shown successfully after reinitialization on display $activeDisplayId" }
         } catch (retryErr: Exception) {
           log.error(retryErr) { "Error showing mouse pointer after reinitialization" }
         }
@@ -1567,6 +1762,13 @@ class GlobalInputService : AccessibilityService() {
     // Mark service as connected - now safe to add overlay windows
     isServiceConnected = true
     log.info { "Accessibility service connected, window overlays now available" }
+
+    // Now that service is connected, initialize WindowManager for the active display
+    val activeDisplay = getActiveDisplay()
+    val displayContext = createDisplayContext(activeDisplay)
+    windowManager = displayContext.getSystemService(WINDOW_SERVICE) as WindowManager
+    activeDisplayId = activeDisplay.displayId
+    log.info { "Initialized WindowManager for display ID: $activeDisplayId" }
 
     val imeId = deskflowImeInfo
     Log.i(TAG, "imeId=$imeId,imeEnabled=$isDeskflowImeEnabled")
