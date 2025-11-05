@@ -594,6 +594,56 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /**
+   * Called when the device configuration changes (e.g., screen rotation, density change, PC mode toggle).
+   * This handles updating the mouse pointer overlay to work with the new screen configuration.
+   */
+  override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+    super.onConfigurationChanged(newConfig)
+
+    val newScreenSize = getScreenSize()
+    log.info { "Configuration changed - new screen size: ${newScreenSize.px.width}x${newScreenSize.px.height}, density: ${newScreenSize.scale}" }
+
+    // Skip updating if screen size is invalid (can happen during rotation transitions)
+    if (newScreenSize.px.width <= 0 || newScreenSize.px.height <= 0) {
+      log.warn { "Invalid screen size during configuration change, skipping mouse pointer update" }
+      return
+    }
+
+    // If the mouse pointer is currently visible, we need to update its position
+    // to ensure it stays within the new screen bounds
+    if (mousePointerVisible) {
+      // Clamp the current position to the new screen bounds
+      val clampedX = mousePointerLayout.x.coerceIn(0, newScreenSize.px.width - 1)
+      val clampedY = mousePointerLayout.y.coerceIn(0, newScreenSize.px.height - 1)
+
+      if (clampedX != mousePointerLayout.x || clampedY != mousePointerLayout.y) {
+        log.info { "Mouse pointer position adjusted from (${mousePointerLayout.x}, ${mousePointerLayout.y}) to ($clampedX, $clampedY) for new screen bounds" }
+        mousePointerLayout.x = clampedX
+        mousePointerLayout.y = clampedY
+      }
+
+      // Update the view layout with the adjusted parameters
+      try {
+        windowManager.updateViewLayout(mousePointerView, mousePointerLayout)
+        log.info { "Mouse pointer overlay updated for new configuration" }
+      } catch (err: Exception) {
+        log.error(err) { "Error updating mouse pointer layout after configuration change" }
+        // If update fails, try to reinitialize the pointer
+        if (reinitializeMousePointer()) {
+          try {
+            windowManager.addView(mousePointerView, mousePointerLayout)
+            mousePointerVisible = true
+            log.info { "Mouse pointer reinitialized after configuration change" }
+          } catch (retryErr: Exception) {
+            log.error(retryErr) { "Failed to reinitialize mouse pointer after configuration change" }
+            mousePointerVisible = false
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Perform a tap/click gesture at the specified position.
    * Used for simulating mouse clicks, long presses, and context menus.
    *
