@@ -680,6 +680,18 @@ class GlobalInputService : AccessibilityService() {
       return
     }
 
+    // Update the server with new screen dimensions
+    try {
+      val result = serviceClient.updateScreenDimensions(newScreenSize.px.width, newScreenSize.px.height)
+      if (result?.ok == true) {
+        log.info { "Successfully updated server with new screen dimensions: ${newScreenSize.px.width}x${newScreenSize.px.height}" }
+      } else {
+        log.warn { "Failed to update server with new screen dimensions: ${result?.message}" }
+      }
+    } catch (err: Exception) {
+      log.error(err) { "Error updating server with new screen dimensions" }
+    }
+
     // If the mouse pointer is currently visible, we need to update its position
     // to ensure it stays within the new screen bounds
     if (mousePointerVisible) {

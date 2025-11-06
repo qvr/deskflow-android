@@ -91,6 +91,32 @@ class ConnectionStateModel(private val context: Context) {
     }
   }
 
+  /**
+   * Updates just the screen dimensions in the connection state.
+   * This is useful when the device configuration changes (like screen rotation)
+   * without needing to update other screen properties.
+   */
+  fun updateScreenDimensions(width: Int, height: Int) {
+    updateState { currentState ->
+      val currentScreen = currentState.screen
+
+      // Only update if dimensions actually changed
+      if (currentScreen.width == width && currentScreen.height == height) {
+        log.debug { "Screen dimensions unchanged: ${width}x${height}" }
+        return@updateState currentState
+      }
+
+      log.info { "Updating screen dimensions from ${currentScreen.width}x${currentScreen.height} to ${width}x${height}" }
+
+      currentState.copy(
+        screen = currentScreen.copy(
+          width = width,
+          height = height
+        )
+      )
+    }
+  }
+
   fun updateState(mutator: (ConnectionState) -> ConnectionState) {
     editableState.update { mutator(it) }
   }

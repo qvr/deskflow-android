@@ -39,6 +39,8 @@ sealed class ScreenEvent : ClientEvent(), Serializable {
 
   data class SetClipboard(val data: ClipboardData) : ScreenEvent(), Serializable
 
+  data object DimensionsChanged : ScreenEvent()
+
   companion object {
     private val log = KLoggingManager.logger(ScreenEvent::class.java.simpleName)
   }

@@ -145,10 +145,23 @@ class Client(
 
   fun setTarget(target: ServerTarget) {
     connectionExecutor.submit {
-      log.info { "Setting target to ${target.address}:${target.port}" }
+      log.info { "Setting target to ${target.address}:${target.port}, screen: ${target.width}x${target.height}" }
       val currentTarget = this.target
-      if (target == currentTarget) {
-        log.warn { "Targets are equal, no change" }
+      if (currentTarget != null &&
+          target.address == currentTarget.address &&
+          target.port == currentTarget.port &&
+          target.useTls == currentTarget.useTls &&
+          target.screenName == currentTarget.screenName) {
+        // Only dimensions changed, update target without reconnecting
+        if (target.width != currentTarget.width || target.height != currentTarget.height) {
+          log.info { "Screen dimensions changed from ${currentTarget.width}x${currentTarget.height} to ${target.width}x${target.height}, updating without reconnect" }
+          this.target = target
+          // The MessageHandler will use the new dimensions via the screenSizeProvider callback
+          // Emit event so MessageHandler can proactively send updated InfoMessage
+          ClientEventBus.emit(ScreenEvent.DimensionsChanged)
+        } else {
+          log.debug { "Target unchanged" }
+        }
         return@submit
       }
 
@@ -199,7 +212,10 @@ class Client(
         fingerprintVerificationCallback,
         clientKeyManager,
       )
-      messageHandler = MessageHandler(socket, target)
+      // Provide a callback that always gets the latest screen dimensions from target
+      messageHandler = MessageHandler(socket, target) {
+        this.target?.let { Pair(it.width, it.height) } ?: Pair(0, 0)
+      }
 
       this.socket = socket
       socket.on { event ->

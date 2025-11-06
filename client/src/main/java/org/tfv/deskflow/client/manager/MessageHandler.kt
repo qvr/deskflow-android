@@ -44,6 +44,7 @@ import org.tfv.deskflow.client.util.logging.KLoggingManager
 class MessageHandler(
   private val socket: FullDuplexSocket,
   private val target: ServerTarget,
+  private val screenSizeProvider: (() -> Pair<Int, Int>)? = null,
 ) : AbstractDisposable() {
 
   @Volatile
@@ -57,7 +58,7 @@ class MessageHandler(
     get() = target.screenName
 
   val screenSize: Pair<Int, Int>
-    get() = Pair(target.width, target.height)
+    get() = screenSizeProvider?.invoke() ?: Pair(target.width, target.height)
 
   private val clipboardReceiveManager = ClipboardReceiveManager()
 
@@ -74,6 +75,15 @@ class MessageHandler(
       is MessagesEvent -> {
         log.trace { "MessagesEvent(size=${event.messages.size})" }
         onMessages(event.messages)
+      }
+      is ScreenEvent.DimensionsChanged -> {
+        // Send updated screen dimensions to server
+        log.info { "Screen dimensions changed, sending updated InfoMessage to server" }
+        if (isConnected) {
+          sendInfo()
+        } else {
+          log.debug { "Not connected, will send InfoMessage after connection" }
+        }
       }
     }
   }

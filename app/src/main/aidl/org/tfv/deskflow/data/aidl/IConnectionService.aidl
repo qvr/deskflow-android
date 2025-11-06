@@ -17,6 +17,8 @@ interface IConnectionService {
 
         Result updateScreenState(in ScreenState screenState);
 
+        Result updateScreenDimensions(int width, int height);
+
         Result setClipboardData(in Bundle bundle);
 
         Result regenerateClientCertificate();

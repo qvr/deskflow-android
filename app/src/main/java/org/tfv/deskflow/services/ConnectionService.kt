@@ -395,6 +395,25 @@ class ConnectionService : Service() {
         return res.apply { ok = true }
       }
 
+      override fun updateScreenDimensions(width: Int, height: Int): Result {
+        val res = Result()
+        if (width <= 0 || height <= 0) {
+          return res.apply {
+            ok = false
+            message = "Invalid screen dimensions: ${width}x${height}"
+          }
+        }
+
+        log.info { "Updating screen dimensions to ${width}x${height}" }
+        connectionStateModel.updateScreenDimensions(width, height)
+
+        // The connectionStateUpdateJobRunnable will automatically update the client's target
+        // with the new dimensions when the state flow emits the change.
+        // The MessageHandler will then use the updated dimensions when the server queries for info.
+
+        return res.apply { ok = true }
+      }
+
       override fun getState(): ConnectionState {
         return runBlocking {
           return@runBlocking connectionStateModel.state

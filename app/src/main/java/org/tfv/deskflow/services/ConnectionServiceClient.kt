@@ -253,6 +253,10 @@ class ConnectionServiceClient(
     return connectionService?.updateScreenState(screenState)
   }
 
+  override fun updateScreenDimensions(width: Int, height: Int): Result? {
+    return connectionService?.updateScreenDimensions(width, height)
+  }
+
   override fun regenerateClientCertificate(): Result? {
     return connectionService?.regenerateClientCertificate()
   }
