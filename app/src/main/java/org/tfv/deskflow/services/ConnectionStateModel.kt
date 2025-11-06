@@ -55,13 +55,11 @@ class ConnectionStateModel(private val context: Context) {
    */
   fun updateScreenFromAppPrefs(appPrefs: AppPrefs) {
     updateState { currentState ->
-      val screenSize = context.getScreenSize()
-
       val currentScreen = currentState.screen
       val currentServer = currentScreen.server
+
+      // Check if anything other than dimensions needs updating
       if (
-        currentScreen.width == screenSize.px.width &&
-        currentScreen.height == screenSize.px.height &&
         currentServer.address == appPrefs.screen.server.address &&
         currentServer.port == appPrefs.screen.server.port &&
         currentServer.useTls == appPrefs.screen.server.useTls &&
@@ -72,12 +70,11 @@ class ConnectionStateModel(private val context: Context) {
         return@updateState currentState
       }
 
+      // Update everything except dimensions (width/height are managed by updateScreenDimensions)
       currentState.copy(
         screen =
           currentScreen.copy(
             name = appPrefs.screen.name,
-            width = screenSize.px.width,
-            height = screenSize.px.height,
             disconnectOnScreenOff = appPrefs.screen.disconnectOnScreenOff,
             server =
               ServerState().apply {

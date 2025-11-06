@@ -25,13 +25,30 @@
 package org.tfv.deskflow.ext
 
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.view.Display
 import org.tfv.deskflow.client.models.Size
 import org.tfv.deskflow.client.models.SizeF
 
 data class ScreenSize(val px: Size, val dp: SizeF, val scale: Float)
 
-fun Context.getScreenSize(): ScreenSize {
-    val dm = resources.displayMetrics
+/**
+ * Get the screen size for a specific display.
+ *
+ * @param displayId The ID of the display to get metrics for. If null, uses the context's display.
+ * @return ScreenSize containing pixel dimensions, dp dimensions, and scale factor.
+ */
+fun Context.getScreenSize(displayId: Int? = null): ScreenSize {
+    val displayContext = if (displayId != null) {
+        val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val display = displayManager.getDisplay(displayId) ?: this.display!!
+        createDisplayContext(display)
+    } else {
+        this
+    }
+
+    // Now use resources.displayMetrics from the correct context
+    val dm = displayContext.resources.displayMetrics
     val widthPx = dm.widthPixels
     val heightPx = dm.heightPixels
     val widthDp = widthPx / dm.density

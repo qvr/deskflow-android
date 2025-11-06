@@ -671,7 +671,7 @@ class GlobalInputService : AccessibilityService() {
   override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
     super.onConfigurationChanged(newConfig)
 
-    val newScreenSize = getScreenSize()
+    val newScreenSize = getScreenSize(activeDisplayId)
     log.info { "Configuration changed - new screen size: ${newScreenSize.px.width}x${newScreenSize.px.height}, density: ${newScreenSize.scale}" }
 
     // Skip updating if screen size is invalid (can happen during rotation transitions)
@@ -738,18 +738,16 @@ class GlobalInputService : AccessibilityService() {
       log.info { "=== Display Information (${displays.size} display(s)) ===" }
 
       displays.forEachIndexed { index, display ->
-        val metrics = resources.displayMetrics
-        val realMetrics = android.util.DisplayMetrics()
-        display.getRealMetrics(realMetrics)
+        val displayContext = createDisplayContext(display)
+        val dm = displayContext.resources.displayMetrics
 
         log.info {
           """
           Display #$index (ID: ${display.displayId}):
             Name: ${display.name}
             State: ${displayStateToString(display.state)}
-            Size (resources): ${metrics.widthPixels}x${metrics.heightPixels}
-            Real Size: ${realMetrics.widthPixels}x${realMetrics.heightPixels}
-            Density: ${metrics.density}
+            Size: ${dm.widthPixels}x${dm.heightPixels}
+            Density: ${dm.density}
             Refresh Rate: ${display.refreshRate} Hz
             Rotation: ${rotationToString(display.rotation)}
             Is Default: ${display.displayId == android.view.Display.DEFAULT_DISPLAY}
@@ -758,9 +756,8 @@ class GlobalInputService : AccessibilityService() {
         }
       }
 
-      // Also log which display the WindowManager is using
-      val defaultDisplay = windowManager.defaultDisplay
-      log.info { "WindowManager default display ID: ${defaultDisplay.displayId}" }
+      // Log which display we're currently using for the WindowManager and gestures
+      log.info { "Active display ID for WindowManager and gestures: $activeDisplayId" }
 
     } catch (err: Exception) {
       log.error(err) { "Error logging display information" }
@@ -1140,7 +1137,7 @@ class GlobalInputService : AccessibilityService() {
   private fun moveMousePointer(x: Int, y: Int) {
     if (!mousePointerVisible) return
 
-    val screenSize = getScreenSize()
+    val screenSize = getScreenSize(activeDisplayId)
     log.debug {
       "Cursor move to [${x}, ${y}] with size(${screenSize.px.width},${screenSize.px.height})"
     }
@@ -1354,7 +1351,7 @@ class GlobalInputService : AccessibilityService() {
    * Creates a two-finger gesture that spreads apart to simulate zoom in.
    */
   private fun spreadGesture() {
-    val screenSize = getScreenSize()
+    val screenSize = getScreenSize(activeDisplayId)
     val pointerX = mousePointerLayout.x.toFloat()
     val pointerY = mousePointerLayout.y.toFloat()
 
@@ -1412,7 +1409,7 @@ class GlobalInputService : AccessibilityService() {
    * Uses willContinue=true to hold at the pinch point, then releases on completion callback.
    */
   private fun pinchGesture() {
-    val screenSize = getScreenSize()
+    val screenSize = getScreenSize(activeDisplayId)
     val pointerX = mousePointerLayout.x.toFloat()
     val pointerY = mousePointerLayout.y.toFloat()
 
@@ -1478,7 +1475,7 @@ class GlobalInputService : AccessibilityService() {
 
     globalInputPending = true
 
-    val screenSize = getScreenSize()
+    val screenSize = getScreenSize(activeDisplayId)
     val screenHeight = screenSize.px.height.toFloat()
 
     // Use pointer position as center of swipe
@@ -1781,6 +1778,15 @@ class GlobalInputService : AccessibilityService() {
     windowManager = displayContext.getSystemService(WINDOW_SERVICE) as WindowManager
     activeDisplayId = activeDisplay.displayId
     log.info { "Initialized WindowManager for display ID: $activeDisplayId" }
+
+    // Update screen dimensions to ConnectionService now that we know the active display
+    val screenSize = getScreenSize(activeDisplayId)
+    val result = serviceClient.updateScreenDimensions(screenSize.px.width, screenSize.px.height)
+    if (result?.ok == true) {
+      log.info { "Successfully initialized server with screen dimensions: ${screenSize.px.width}x${screenSize.px.height} for display $activeDisplayId" }
+    } else {
+      log.warn { "Failed to initialize server with screen dimensions: ${result?.message}" }
+    }
 
     val imeId = deskflowImeInfo
     Log.i(TAG, "imeId=$imeId,imeEnabled=$isDeskflowImeEnabled")
