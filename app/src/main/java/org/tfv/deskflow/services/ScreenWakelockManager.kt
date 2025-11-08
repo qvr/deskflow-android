@@ -31,7 +31,7 @@ import org.tfv.deskflow.client.util.logging.KLoggingManager
 
 /**
  * Manages screen wakelock acquisition with automatic release to keep the device
- * screen on during mouse movement. The wakelock is acquired on mouse movement
+ * screen on during input activity (mouse/keyboard). The wakelock is acquired on input activity
  * and automatically released 5 seconds after acquisition by Android.
  *
  * The wakelock uses the following flags:
@@ -54,17 +54,18 @@ class ScreenWakelockManager(
   private val log = KLoggingManager.logger(ScreenWakelockManager::class.java.simpleName)
 
   /**
-   * Called when mouse movement is detected. This will acquire the wakelock, which will be
-   * automatically released by Android after [autoReleaseTimeoutMs] milliseconds.
+   * Called when input activity (mouse movement or keyboard event) is detected.
+   * This will acquire the wakelock, which will be automatically released by Android
+   * after [autoReleaseTimeoutMs] milliseconds.
    */
-  fun onMouseMovement() {
+  fun onInputActivity() {
     try {
       // Create wakelock if not already created
       if (wakelock == null) {
         val lockLevel = PowerManager.FULL_WAKE_LOCK or
           PowerManager.ACQUIRE_CAUSES_WAKEUP or
           PowerManager.ON_AFTER_RELEASE
-        wakelock = powerManager.newWakeLock(lockLevel, "deskflow:mouse_activity")
+        wakelock = powerManager.newWakeLock(lockLevel, "deskflow:input_activity")
       }
 
       // Only acquire if not already held

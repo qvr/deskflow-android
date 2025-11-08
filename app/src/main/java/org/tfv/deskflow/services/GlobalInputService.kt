@@ -111,8 +111,8 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /**
-   * Manager for keeping the screen on during mouse movement via wakelock.
-   * The wakelock is throttled to refresh every 5 seconds during continued movement.
+   * Manager for keeping the screen on during input activity via wakelock.
+   * The wakelock is throttled to refresh every 5 seconds during continued activity.
    */
   private lateinit var screenWakelockManager: ScreenWakelockManager
 
@@ -453,7 +453,7 @@ class GlobalInputService : AccessibilityService() {
 
     createNotificationChannel()
 
-    // Initialize the screen wakelock manager for keeping screen on during mouse movement
+    // Initialize the screen wakelock manager for keeping screen on during input activity
     screenWakelockManager = ScreenWakelockManager(this, autoReleaseTimeoutMs = 5000L)
 
     keyboardManager = GlobalKeyboardManager(this)
@@ -619,6 +619,9 @@ class GlobalInputService : AccessibilityService() {
    */
   private fun onKeyboardEvent(event: KeyboardEvent) {
     log.debug { "onKeyboardEvent: $event" }
+
+    // Keep the screen on during keyboard activity
+    screenWakelockManager.onInputActivity()
 
     // always process modifier key events (both Down and Up) to keep keyboardManager state synchronized
     val modKey = Keyboard.findModifierKey(event.id.toInt())
@@ -1160,7 +1163,7 @@ class GlobalInputService : AccessibilityService() {
         moveMousePointer(currentX, currentY)
 
         // Keep the screen on during mouse movement
-        screenWakelockManager.onMouseMovement()
+        screenWakelockManager.onInputActivity()
 
         // Check if we're in a drag operation
         mouseButtonDown?.let { buttonState ->
@@ -1196,7 +1199,7 @@ class GlobalInputService : AccessibilityService() {
         moveMousePointer(newX, newY)
 
         // Keep the screen on during mouse movement
-        screenWakelockManager.onMouseMovement()
+        screenWakelockManager.onInputActivity()
 
         // Check if we're in a drag operation
         mouseButtonDown?.let { buttonState ->
@@ -1646,7 +1649,7 @@ class GlobalInputService : AccessibilityService() {
       windowManager.addView(mousePointerView, mousePointerLayout)
 
       mousePointerVisible = true
-      screenWakelockManager.onMouseMovement()
+      screenWakelockManager.onInputActivity()
       log.info { "Mouse pointer shown on display $targetDisplayId" }
     } catch (err: android.view.WindowManager.BadTokenException) {
       log.error(err) { "BadTokenException when showing mouse pointer - window manager token invalid, attempting reinitialize" }
@@ -1659,7 +1662,7 @@ class GlobalInputService : AccessibilityService() {
           // reinitializeMousePointer() has already updated windowManager and activeDisplayId
           windowManager.addView(mousePointerView, mousePointerLayout)
           mousePointerVisible = true
-          screenWakelockManager.onMouseMovement()
+          screenWakelockManager.onInputActivity()
           log.info { "Mouse pointer shown successfully after reinitialization on display $activeDisplayId" }
         } catch (retryErr: Exception) {
           log.error(retryErr) { "Error showing mouse pointer after reinitialization" }
