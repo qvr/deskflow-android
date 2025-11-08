@@ -281,6 +281,12 @@ class GlobalInputService : AccessibilityService() {
   private val displayListener = object : DisplayManager.DisplayListener {
     override fun onDisplayAdded(displayId: Int) {
       log.info { "Display added: ID=$displayId" }
+
+      if (!serviceClient.stateFlow.value.isEnabled) {
+        log.debug { "Display added but service not enabled, skipping processing" }
+        return
+      }
+
       logDisplayInformation()
 
       // If mouse pointer is visible, we may need to move it to the new display
@@ -296,6 +302,12 @@ class GlobalInputService : AccessibilityService() {
 
     override fun onDisplayRemoved(displayId: Int) {
       log.info { "Display removed: ID=$displayId" }
+
+      if (!serviceClient.stateFlow.value.isEnabled) {
+        log.debug { "Display removed but service not enabled, skipping processing" }
+        return
+      }
+
       logDisplayInformation()
 
       // If mouse pointer is visible, we may need to move it back to primary display
@@ -673,6 +685,11 @@ class GlobalInputService : AccessibilityService() {
    */
   override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
     super.onConfigurationChanged(newConfig)
+
+    if (!serviceClient.stateFlow.value.isEnabled) {
+      log.debug { "Configuration changed but service not enabled, skipping processing" }
+      return
+    }
 
     val newScreenSize = getScreenSize(activeDisplayId)
     log.info { "Configuration changed - new screen size: ${newScreenSize.px.width}x${newScreenSize.px.height}, density: ${newScreenSize.scale}" }
@@ -1810,7 +1827,12 @@ class GlobalInputService : AccessibilityService() {
    */
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     log.debug { "onAccessibilityEvent: ${event?.eventType}" }
-    //
+
+    if (!serviceClient.stateFlow.value.isEnabled) {
+      log.debug { "Service not enabled, ignoring accessibility event" }
+      return
+    }
+
     when (event?.eventType) {
       AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
         checkIMESetup()
