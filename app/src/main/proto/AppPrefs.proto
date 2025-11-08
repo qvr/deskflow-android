@@ -50,6 +50,10 @@ message AppPrefs {
     map<string, TrustedFingerprint> trusted_fingerprints = 1;
   }
 
+  message ConnectionConfig {
+    bool is_enabled = 1;
+  }
+
   ScreenConfig screen = 1;
 
   ActionsConfig actions = 2;
@@ -57,5 +61,7 @@ message AppPrefs {
   LoggingConfig logging = 3;
 
   TrustConfig trust = 4;
+
+  ConnectionConfig connection = 5;
 
 }

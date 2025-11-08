@@ -71,6 +71,7 @@ import org.tfv.deskflow.data.models.AppPrefs
 import org.tfv.deskflow.data.models.AppPrefsKt.ScreenConfigKt.serverConfig
 import org.tfv.deskflow.data.models.AppPrefsKt.loggingConfig
 import org.tfv.deskflow.data.models.AppPrefsKt.screenConfig
+import org.tfv.deskflow.data.models.AppPrefsKt.connectionConfig
 import org.tfv.deskflow.data.models.copy
 import org.tfv.deskflow.ext.copy
 import org.tfv.deskflow.ext.toServerTarget
@@ -316,6 +317,17 @@ class ConnectionService : Service() {
       }
 
       override fun setEnabled(enabled: Boolean): Result {
+        // Persist the enabled state to preferences
+        runBlocking {
+          appPrefsStore.updateData { appPrefs ->
+            appPrefs.copy {
+              connection = connectionConfig {
+                isEnabled = enabled
+              }
+            }
+          }
+        }
+
         // Dispose client when disabling to save battery
         if (!enabled) {
           // Update state first so client can disconnect cleanly
@@ -707,17 +719,31 @@ class ConnectionService : Service() {
     fingerprintVerificationCallback = FingerprintVerificationHandlerImpl()
 
     connectionStateModel = ConnectionStateModel(this)
-    serviceScope.launch {
-      appPrefsStore.data.collect(onAppPrefsChanged)
 
+    // Restore state from preferences synchronously before starting the state update job
+    runBlocking {
       val appPrefs = appPrefsStore.data.first()
       connectionStateModel.updateScreenFromAppPrefs(appPrefs)
+
+      // Restore the isEnabled state from preferences
+      val savedIsEnabled = if (appPrefs.hasConnection()) {
+        appPrefs.connection.isEnabled
+      } else {
+        true // Default to enabled on first install
+      }
+      connectionStateModel.updateState { it.copy(isEnabled = savedIsEnabled) }
     }
 
     ClientEventBus.on(this::onClientEvent)
 
+    // Start the state update job after restoring the state
     connectionStateUpdateJob =
       serviceScope.launch { connectionStateUpdateJobRunnable() }
+
+    // Observe preference changes
+    serviceScope.launch {
+      appPrefsStore.data.collect(onAppPrefsChanged)
+    }
   }
 
   /**
