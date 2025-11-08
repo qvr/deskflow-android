@@ -247,6 +247,14 @@ class ConnectionService : Service() {
 
       override fun setClipboardData(bundle: Bundle): Result {
         return catch({
+          // Don't create client if disabled
+          if (!connectionStateModel.state.value.isEnabled) {
+            return Result().apply {
+              ok = false
+              message = "Connection is disabled"
+            }
+          }
+
           val clipboardData = bundle.getSerializable("clipboardData",ClipboardData::class.java)
           require(clipboardData != null) {
             "clipboardData was not valid in clipboard data bundle"
@@ -308,7 +316,32 @@ class ConnectionService : Service() {
       }
 
       override fun setEnabled(enabled: Boolean): Result {
-        connectionStateModel.updateState { it.copy(isEnabled = enabled) }
+        // Dispose client when disabling to save battery
+        if (!enabled) {
+          // Update state first so client can disconnect cleanly
+          connectionStateModel.updateState {
+            it.copy(
+              isEnabled = false,
+              isConnected = false,
+              ackReceived = false
+            )
+          }
+
+          // Give the client a moment to process the disable and disconnect
+          Thread.sleep(100)
+
+          synchronized(this@ConnectionService) {
+            client?.let {
+              log.info { "Disposing client due to disable" }
+              it.dispose()
+              client = null
+            }
+          }
+        } else {
+          connectionStateModel.updateState { it.copy(isEnabled = true) }
+          // Client will be recreated on next checkEnabled() call
+          log.info { "Client will be recreated on next connection attempt" }
+        }
 
         return Result().apply {
           ok = true
@@ -472,6 +505,13 @@ class ConnectionService : Service() {
   /** Check if the client is enabled and update if necessary. */
   private fun checkEnabled() {
     val state = connectionStateModel.state.value
+
+    // Only create/get client if enabled, otherwise we'd recreate what we just disposed
+    if (!state.isEnabled) {
+      log.debug { "Connection is disabled, skipping client check" }
+      return
+    }
+
     val client = getOrCreateClient()
 
     if (state.isEnabled != client.isEnabled) {
@@ -535,6 +575,8 @@ class ConnectionService : Service() {
     if (shouldReconnectOnScreenOn) {
       log.info { "Reconnecting after screen turned on" }
       connectionStateModel.updateState { it.copy(isEnabled = true) }
+      // Client will be recreated on next checkEnabled() call
+      log.info { "Client will be recreated on next connection attempt" }
       shouldReconnectOnScreenOn = false
     }
   }
@@ -560,7 +602,27 @@ class ConnectionService : Service() {
           delay(10000)
           log.info { "Disconnecting due to screen off" }
           shouldReconnectOnScreenOn = true
-          connectionStateModel.updateState { it.copy(isEnabled = false) }
+
+          // Update state first so client can disconnect cleanly
+          connectionStateModel.updateState {
+            it.copy(
+              isEnabled = false,
+              isConnected = false,
+              ackReceived = false
+            )
+          }
+
+          // Give the client a moment to process the disable and disconnect
+          delay(100)
+
+          // Dispose client to save battery
+          synchronized(this@ConnectionService) {
+            client?.let {
+              log.info { "Disposing client due to screen off" }
+              it.dispose()
+              client = null
+            }
+          }
         } catch (e: Exception) {
           log.debug(e) { "Screen off disconnect job cancelled or failed" }
         }
@@ -583,8 +645,11 @@ class ConnectionService : Service() {
       checkEnabled()
       sendToClients { onStateChanged(state) }
 
-      val screen = state.screen
-      getOrCreateClient().setTarget(screen.toServerTarget())
+      // Only set target if client exists and is enabled
+      if (state.isEnabled) {
+        val screen = state.screen
+        getOrCreateClient().setTarget(screen.toServerTarget())
+      }
     }
   }
 
