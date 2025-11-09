@@ -131,5 +131,53 @@
       "Super+Return"
     ],
     "ignoreIME": false
+  },
+  {
+    "actionId": 101,
+    "label": "Volume Up",
+    "defaultShortcutKeys":  [
+      "VolumeUp"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 102,
+    "label": "Volume Down",
+    "defaultShortcutKeys":  [
+      "VolumeDown"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 103,
+    "label": "Mute Toggle",
+    "defaultShortcutKeys":  [
+      "Mute"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 104,
+    "label": "Media Play/Pause",
+    "defaultShortcutKeys":  [
+      "MediaPlayPause"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 105,
+    "label": "Media Next",
+    "defaultShortcutKeys":  [
+      "MediaNext"
+    ],
+    "ignoreIME": true
+  },
+  {
+    "actionId": 106,
+    "label": "Media Previous",
+    "defaultShortcutKeys":  [
+      "MediaPrevious"
+    ],
+    "ignoreIME": true
   }
 ]

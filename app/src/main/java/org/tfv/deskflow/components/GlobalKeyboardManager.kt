@@ -26,6 +26,8 @@ package org.tfv.deskflow.components
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.media.AudioManager
+import android.view.KeyEvent
 import androidx.annotation.RawRes
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +66,10 @@ open class GlobalKeyboardManager(
 
   protected val executor = SingletonThreadExecutor(javaClass.simpleName)
 
+  protected val audioManager by lazy {
+    ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+  }
+
   protected val editableActionFlow = MutableSharedFlow<GlobalKeyboardAction>()
 
   val actionFlow: SharedFlow<GlobalKeyboardAction> =
@@ -81,6 +87,7 @@ open class GlobalKeyboardManager(
           loadKeyboardActions<String, GlobalKeyboardAction>(
             ctx,
             R.raw.global_actions_defaults,
+            this,
           )
       )
   }
@@ -170,13 +177,31 @@ open class GlobalKeyboardManager(
     executor.shutdown()
   }
 
+  private fun dispatchMediaKeyEvent(keyCode: Int) {
+    try {
+      val eventTime = android.os.SystemClock.uptimeMillis()
+      val downEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, keyCode, 0)
+      val upEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, keyCode, 0)
+
+      audioManager.dispatchMediaKeyEvent(downEvent)
+      audioManager.dispatchMediaKeyEvent(upEvent)
+      log.debug { "Dispatched media key event: $keyCode" }
+    } catch (e: Exception) {
+      log.error(e) { "Failed to dispatch media key event: ${e.message}" }
+    }
+  }
+
   companion object {
     internal val log = KLoggingManager.logger(GlobalKeyboardManager::class)
 
     internal inline fun <
       reified K,
       reified T : KeyboardAction<String>,
-    > loadKeyboardActions(ctx: Context, @RawRes rawFileResId: Int): Map<K, T> {
+    > loadKeyboardActions(
+      ctx: Context,
+      @RawRes rawFileResId: Int,
+      manager: GlobalKeyboardManager? = null,
+    ): Map<K, T> {
       val fileManager = FileManager(ctx)
       val actionMap = mutableMapOf<K, T>()
       val jsonActionDefaults =
@@ -214,6 +239,46 @@ open class GlobalKeyboardManager(
 
         when {
           T::class == GlobalKeyboardAction::class -> {
+            // Create execute function for media keys
+            val executeFunc: (GlobalKeyboardAction) -> Unit = when (actionId) {
+              101 -> { _ -> // Volume Up
+                manager?.audioManager?.adjustStreamVolume(
+                  AudioManager.STREAM_MUSIC,
+                  AudioManager.ADJUST_RAISE,
+                  AudioManager.FLAG_SHOW_UI
+                )
+              }
+              102 -> { _ -> // Volume Down
+                manager?.audioManager?.adjustStreamVolume(
+                  AudioManager.STREAM_MUSIC,
+                  AudioManager.ADJUST_LOWER,
+                  AudioManager.FLAG_SHOW_UI
+                )
+              }
+              103 -> { _ -> // Mute Toggle
+                manager?.audioManager?.adjustStreamVolume(
+                  AudioManager.STREAM_MUSIC,
+                  AudioManager.ADJUST_TOGGLE_MUTE,
+                  AudioManager.FLAG_SHOW_UI
+                )
+              }
+              /*
+              * Media Controls
+              * We could look into using MediaSessionManager and MediaController to
+              * control media playback more globally in the future.
+              */
+              104 -> { _ -> // Media Play/Pause
+                manager?.dispatchMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+              }
+              105 -> { _ -> // Media Next
+                manager?.dispatchMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_NEXT)
+              }
+              106 -> { _ -> // Media Previous
+                manager?.dispatchMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+              }
+              else -> { _ -> } // No execute function for other actions
+            }
+
             actionMap[actionId.toString() as K] =
               GlobalKeyboardAction(
                 id = actionId.toString(),
@@ -222,7 +287,7 @@ open class GlobalKeyboardManager(
                 shortcutKeys = defaultShortcutKeys.toList(),
                 defaultShortcutKeys = defaultShortcutKeys,
                 ignoreIME = ignoreIME,
-                execute = {},
+                execute = executeFunc,
               )
                 as T
           }

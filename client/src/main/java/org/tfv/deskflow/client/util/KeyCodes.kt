@@ -54,7 +54,15 @@ object Keyboard {
     PageUp(0xEF55, "\u001B[5~"), /* Page Up */
     PageDown(0xEF56, "\u001B[6~"), /* Page Down */
     End(0xEF57),   /* EOL */
-    Begin(0xEF58); /* BOL */
+    Begin(0xEF58), /* BOL */
+
+    // media keys
+    Mute(0xE0AD),           /* Mute toggle */
+    VolumeDown(0xE0AE),     /* Volume down */
+    VolumeUp(0xE0AF),       /* Volume up */
+    MediaNext(0xE0B0),      /* Media next track */
+    MediaPrevious(0xE0B1),  /* Media previous track */
+    MediaPlayPause(0xE0B3); /* Media play/pause */
 
     val label: String = name
   }
