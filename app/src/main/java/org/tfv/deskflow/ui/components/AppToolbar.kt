@@ -138,7 +138,7 @@ fun AppToolbar(appState: IAppState = LocalAppState.current) {
                 contentColor = onButtonColor,
             ),
             contentPadding = PaddingValues(
-              horizontal = 16.dp
+              horizontal = 12.dp
             ),
             modifier = Modifier.padding(0.dp),
           ) {
@@ -149,7 +149,7 @@ fun AppToolbar(appState: IAppState = LocalAppState.current) {
                     stringResource(R.string.app_toolbar_button_start)
                   else -> stringResource(R.string.app_toolbar_button_stop)
                 },
-              modifier = Modifier.padding(horizontal = 4.dp),
+              modifier = Modifier.padding(horizontal = 2.dp),
             )
 
             //if (appState.isEnabled)
