@@ -41,6 +41,7 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.hardware.display.DisplayManager
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -110,11 +111,20 @@ class GlobalInputService : AccessibilityService() {
     getSystemService(DisplayManager::class.java)
   }
 
+  private val wifiManager by lazy {
+    applicationContext.getSystemService(WifiManager::class.java)
+  }
+
   /**
    * Manager for keeping the screen on during input activity via wakelock.
    * The wakelock is throttled to refresh every 5 seconds during continued activity.
    */
   private lateinit var screenWakelockManager: ScreenWakelockManager
+
+  /**
+   * WiFi lock for low latency mode when cursor is active on this screen.
+   */
+  private var wifiLowLatencyLock: WifiManager.WifiLock? = null
 
   /**
    * Flow to observe if the home screen is currently active. This is used to
@@ -578,9 +588,43 @@ class GlobalInputService : AccessibilityService() {
     monitorConnectionState()
   }
 
+  private fun acquireWifiLowLatencyLock() {
+    try {
+      // Release existing lock if any
+      releaseWifiLowLatencyLock()
+
+      // Create and acquire new low latency WiFi lock
+      wifiLowLatencyLock = wifiManager.createWifiLock(
+        WifiManager.WIFI_MODE_FULL_LOW_LATENCY,
+        "DeskflowLowLatency"
+      ).apply {
+        acquire()
+        log.info { "WiFi low latency lock acquired" }
+      }
+    } catch (err: Exception) {
+      log.error(err) { "Error acquiring WiFi low latency lock" }
+    }
+  }
+
+  private fun releaseWifiLowLatencyLock() {
+    wifiLowLatencyLock?.let { lock ->
+      try {
+        if (lock.isHeld) {
+          lock.release()
+          log.info { "WiFi low latency lock released" }
+        }
+      } catch (err: Exception) {
+        log.error(err) { "Error releasing WiFi low latency lock" }
+      } finally {
+        wifiLowLatencyLock = null
+      }
+    }
+  }
+
   /**
    * Monitor connection state and reset IME-related state when disconnected.
    * Also manages mouse pointer visibility based on screen active state.
+   * Also manages WiFi low latency lock based on screen active state.
    */
   private fun monitorConnectionState() {
     serviceScope.launch {
@@ -601,6 +645,7 @@ class GlobalInputService : AccessibilityService() {
           withContext(Dispatchers.Main) {
             showMousePointer()
           }
+          acquireWifiLowLatencyLock()
         } else {
           if (state.isConnected && state.isEnabled && !state.screen.isActive) {
             log.info { "Cursor left this client, hiding mouse pointer" }
@@ -610,6 +655,7 @@ class GlobalInputService : AccessibilityService() {
           withContext(Dispatchers.Main) {
             hideMousePointer()
           }
+          releaseWifiLowLatencyLock()
         }
 
         // When disconnected or disabled, reset IME tracking state
@@ -676,6 +722,7 @@ class GlobalInputService : AccessibilityService() {
     serviceClient.unbind()
     hideMousePointer()  // Use the safe hide method instead of direct removeView
     screenWakelockManager.cleanup()  // Clean up wakelock resources
+    releaseWifiLowLatencyLock()  // Release WiFi low latency lock
     super.onDestroy()
   }
 
