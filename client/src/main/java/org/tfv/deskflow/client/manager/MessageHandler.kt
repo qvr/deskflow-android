@@ -64,7 +64,8 @@ class MessageHandler(
 
   private val messageExecutor = Executors.newSingleThreadExecutor { runnable ->
     Thread(runnable, "MessageHandlerThread").apply {
-      priority = Thread.MAX_PRIORITY
+      // Elevated priority (7 out of 10) for responsive input handling
+      priority = Thread.NORM_PRIORITY + 2
     }
   }
   private val scheduledExecutor = Executors.newScheduledThreadPool(1)

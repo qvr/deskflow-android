@@ -107,7 +107,8 @@ class FullDuplexSocket(
       }
     }
     thread = Thread({ runLoop() }, FullDuplexSocket::class.java.simpleName).apply {
-      priority = Thread.MAX_PRIORITY
+      // Elevated priority (7 out of 10) for responsive network I/O
+      priority = Thread.NORM_PRIORITY + 2
     }
     thread!!.start()
   }
