@@ -106,7 +106,9 @@ class FullDuplexSocket(
         return@start
       }
     }
-    thread = Thread({ runLoop() }, FullDuplexSocket::class.java.simpleName)
+    thread = Thread({ runLoop() }, FullDuplexSocket::class.java.simpleName).apply {
+      priority = Thread.MAX_PRIORITY
+    }
     thread!!.start()
   }
 

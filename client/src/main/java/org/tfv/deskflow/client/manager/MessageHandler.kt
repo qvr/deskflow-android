@@ -62,7 +62,11 @@ class MessageHandler(
 
   private val clipboardReceiveManager = ClipboardReceiveManager()
 
-  private val messageExecutor = Executors.newSingleThreadExecutor()
+  private val messageExecutor = Executors.newSingleThreadExecutor { runnable ->
+    Thread(runnable, "MessageHandlerThread").apply {
+      priority = Thread.MAX_PRIORITY
+    }
+  }
   private val scheduledExecutor = Executors.newScheduledThreadPool(1)
 
   init {
