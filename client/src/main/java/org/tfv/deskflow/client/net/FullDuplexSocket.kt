@@ -113,49 +113,56 @@ class FullDuplexSocket(
   private val isStopped = AtomicBoolean(false)
 
   fun stop(skipEmit: Boolean = false) {
+    val threadToJoin: Thread?
+
     synchronized(threadLock) {
       if (isStopped.exchange(true)) {
         log.warn { "Socket is already stopped" }
         return@stop
       }
 
-      val thread = this.thread
-
-      log.trace { "Interrupting socket" }
-      try {
-        thread?.interrupt()
-      } catch (err: Exception) {}
-
-      log.trace { "Joining socket" }
-      try {
-        thread?.join()
-      } catch (err: Exception) {}
+      threadToJoin = this.thread
       this.thread = null
 
-      val channel = channel
-      if (channel != null) {
-        if (channel.isConnected) {
-          try {
-            channel.close()
-          } catch (err: Error) {}
-        }
-        this.channel = null
-      }
-
-      val selector = selector
+      // Close selector first to wake up any blocking select() call
+      val selector = this.selector
       if (selector != null) {
         try {
           selector.close()
-        } catch (err: Error) {}
+        } catch (_: Exception) {}
         this.selector = null
       }
 
-      log.trace { "Stopped socket" }
-      if (!skipEmit) {
-        emit(SocketEvent.DisconnectEvent(this))
+      // Close channel to ensure socket thread can't do more I/O
+      val channel = this.channel
+      if (channel != null) {
+        try {
+          channel.close()
+        } catch (_: Exception) {}
+        this.channel = null
       }
-      this.clear()
     }
+
+    if (threadToJoin != null) {
+      log.trace { "Interrupting socket thread" }
+      try {
+        threadToJoin.interrupt()
+      } catch (_: Exception) {}
+
+      log.trace { "Joining socket thread" }
+      try {
+        threadToJoin.join(1000)
+        if (threadToJoin.isAlive) {
+          log.warn { "Socket thread did not terminate within 1 second" }
+        }
+      } catch (_: Exception) {}
+    }
+
+    log.trace { "Stopped socket" }
+    if (!skipEmit) {
+      emit(SocketEvent.DisconnectEvent(this))
+    }
+    this.clear()
   }
 
   override fun onDispose() {
@@ -172,17 +179,18 @@ class FullDuplexSocket(
   }
 
   fun send(data: ByteArray) {
-    synchronized(threadLock) {
-      if (!isRunning) {
-        log.warn { "Socket is not running" }
-        return
-      }
-
-      // Enqueue the next message
-      outbound.put(ByteBuffer.wrap(data))
-      // Wake up selector in case it’s blocked
-      selector?.wakeup()
+    if (isStopped.load()) {
+      log.warn { "Socket is stopped, ignoring send" }
+      return
     }
+
+    // Enqueue the next message
+    outbound.put(ByteBuffer.wrap(data))
+
+    // Wake up selector in case it's blocked
+    try {
+      selector?.wakeup()
+    } catch (_: Exception) {}
 
     log.trace { "Send message queued ${data.size}" }
   }
