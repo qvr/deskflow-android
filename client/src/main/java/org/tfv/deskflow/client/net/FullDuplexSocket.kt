@@ -421,6 +421,21 @@ class FullDuplexSocket(
                   netInBuffer.flip()
                   while (netInBuffer.hasRemaining()) {
                     val res = sslEngine.unwrap(netInBuffer, appInBuffer)
+
+                    when (res.status) {
+                      SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
+                        // Break out and wait for more data
+                        break
+                      }
+                      SSLEngineResult.Status.CLOSED -> {
+                        log.info { "SSL engine closed" }
+                        sc.close()
+                        stop()
+                        return@runLoop
+                      }
+                      else -> {}
+                    }
+
                     if (res.bytesProduced() > 0) {
                       appInBuffer.flip()
                       readBuffer.append(appInBuffer, appInBuffer.remaining())
