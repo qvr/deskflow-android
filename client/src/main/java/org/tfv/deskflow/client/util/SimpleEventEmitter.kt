@@ -24,8 +24,10 @@
 
 package org.tfv.deskflow.client.util
 
+import java.util.concurrent.CopyOnWriteArrayList
+
 open class SimpleEventEmitter<Payload> : ISimpleEventEmitter<Payload> {
-    private val listeners = mutableListOf<(Payload) -> Unit>()
+    private val listeners = CopyOnWriteArrayList<(Payload) -> Unit>()
 
     /** Register a listener for [event]. */
     override fun on(listener: (payload: Payload) -> Unit) {
@@ -57,9 +59,7 @@ open class SimpleEventEmitter<Payload> : ISimpleEventEmitter<Payload> {
 
     /** Emit passing along an optional [payload]. */
     override fun emit(payload: Payload) {
-        // Create a copy to avoid ConcurrentModificationException
-        // if a listener modifies the list during iteration (e.g., once() wrapper)
-        listeners.toList().forEach { it(payload) }
+        listeners.forEach { it(payload) }
     }
 
     /** Remove all listeners for [event], or all events if [event] is null. */
