@@ -62,7 +62,12 @@ class MessageHandler(
 
   private val clipboardReceiveManager = ClipboardReceiveManager()
 
-  private val messageExecutor = Executors.newSingleThreadExecutor()
+  private val messageExecutor = Executors.newSingleThreadExecutor { runnable ->
+    Thread(runnable, "MessageHandlerThread").apply {
+      // Elevated priority (7 out of 10) for responsive input handling
+      priority = Thread.NORM_PRIORITY + 2
+    }
+  }
   private val scheduledExecutor = Executors.newScheduledThreadPool(1)
 
   init {
