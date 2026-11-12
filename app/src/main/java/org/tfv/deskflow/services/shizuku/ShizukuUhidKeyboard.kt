@@ -54,11 +54,12 @@ object ShizukuUhidKeyboard {
     @Synchronized get() = process != null
 
   /**
-   * Start the helper if it isn't running. [onExit] runs on a background
-   * thread if this helper exits on its own (not after [stop]).
+   * Start the helper if it isn't running, with the device created if
+   * [attached]. [onExit] runs on a background thread if this helper exits on
+   * its own (not after [stop]).
    */
   @Synchronized
-  fun start(context: Context, onExit: (Int?) -> Unit = {}): Boolean {
+  fun start(context: Context, attached: Boolean, onExit: (Int?) -> Unit = {}): Boolean {
     if (isRunning) return true
     if (!Shizuku.pingBinder()) {
       log.warn { "Shizuku not running" }
@@ -70,7 +71,8 @@ object ShizukuUhidKeyboard {
     }
     val method = newProcess ?: return false
     val apk = context.applicationInfo.sourceDir
-    val cmd = "CLASSPATH='$apk' exec /system/bin/app_process / ${UhidMain::class.java.name}"
+    val flags = if (attached) "" else " --detached"
+    val cmd = "CLASSPATH='$apk' exec /system/bin/app_process / ${UhidMain::class.java.name}$flags"
     return runCatching {
         val p = method.invoke(null, arrayOf("sh", "-c", cmd), null, null) as Process
         process = p
@@ -107,14 +109,25 @@ object ShizukuUhidKeyboard {
   }
 
   /** Send one 8-byte boot keyboard report: [modifiers, 0, key1..key6]. */
-  @Synchronized
   fun sendReport(report: ByteArray): Boolean {
     require(report.size == UhidMain.KEYBOARD_REPORT_SIZE)
+    return send(UhidMain.MSG_KEYBOARD_REPORT, report)
+  }
+
+  /**
+   * Create ([attached]) or destroy the input device without stopping the
+   * helper. Android hides on-screen keyboards while it exists.
+   */
+  fun setAttached(attached: Boolean): Boolean =
+    send(if (attached) UhidMain.MSG_ATTACH else UhidMain.MSG_DETACH, ByteArray(0))
+
+  @Synchronized
+  private fun send(type: Int, payload: ByteArray): Boolean {
     val out = stdin ?: return false
     return runCatching {
-        out.write(UhidMain.MSG_KEYBOARD_REPORT)
-        out.write(report.size)
-        out.write(report)
+        out.write(type)
+        out.write(payload.size)
+        out.write(payload)
         out.flush()
         true
       }

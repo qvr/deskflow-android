@@ -28,7 +28,12 @@ import java.util.Arrays;
  *
  * <ul>
  *   <li>type 1 = keyboard input report (8 bytes: modifiers, reserved, 6 key usages)
+ *   <li>type 2 = attach: create the device if it doesn't exist (no payload)
+ *   <li>type 3 = detach: destroy the device but keep running (no payload)
  * </ul>
+ *
+ * <p>The device is created at startup unless {@code --detached} is given. Detaching lets Android show the on-screen keyboard again
+ * (it hides soft keyboards while a hardware keyboard is attached) without restarting the helper.
  *
  * EOF on stdin destroys the device and exits, so the keyboard disappears with the app.
  *
@@ -63,6 +68,8 @@ public final class UhidMain {
   private static final String PHYS = "deskflow/uhid0";
   private static final String UNIQ = "deskflow-uhid-keyboard";
   public static final int MSG_KEYBOARD_REPORT = 1;
+  public static final int MSG_ATTACH = 2;
+  public static final int MSG_DETACH = 3;
   public static final int KEYBOARD_REPORT_SIZE = 8;
 
   /** Boot-protocol keyboard: modifiers, reserved, 5 LEDs (output), 6 key slots. */
@@ -103,11 +110,30 @@ public final class UhidMain {
 
   private UhidMain() {}
 
+  /** Whether the device currently exists. Only touched by the main (pump) thread. */
+  private static boolean created = false;
+
+  private static void createDevice(FileDescriptor fd) throws Exception {
+    if (created) return;
+    write(fd, create2(DEVICE_NAME));
+    created = true;
+    log("UHID keyboard created (uid=" + Os.getuid() + ")");
+  }
+
+  private static void destroyDevice(FileDescriptor fd) throws Exception {
+    if (!created) return;
+    created = false;
+    write(fd, header(UHID_DESTROY, 0).array());
+    log("UHID keyboard destroyed");
+  }
+
   public static void main(String[] args) {
     boolean demo = false;
+    boolean detached = false;
     long demoDelayMs = 1500;
     for (String arg : args) {
       if (arg.equals("--demo")) demo = true;
+      else if (arg.equals("--detached")) detached = true;
       else if (arg.startsWith("--demo-delay=")) {
         demo = true;
         demoDelayMs = Long.parseLong(arg.substring("--demo-delay=".length()));
@@ -122,8 +148,7 @@ public final class UhidMain {
       return;
     }
     try {
-      write(fd, create2(DEVICE_NAME));
-      log("UHID keyboard created (uid=" + Os.getuid() + ")");
+      if (demo || !detached) createDevice(fd);
       startOutputReader(fd);
       if (demo) runDemo(fd, demoDelayMs);
       else pump(fd);
@@ -131,14 +156,13 @@ public final class UhidMain {
       log("fatal: " + err);
     } finally {
       try {
-        write(fd, header(UHID_DESTROY, 0).array());
+        destroyDevice(fd);
       } catch (Throwable ignored) {
       }
       try {
         Os.close(fd);
       } catch (Throwable ignored) {
       }
-      log("UHID keyboard destroyed");
     }
     System.exit(0);
   }
@@ -157,7 +181,11 @@ public final class UhidMain {
       int len = input.readUnsignedByte();
       input.readFully(payload, 0, len);
       if (type == MSG_KEYBOARD_REPORT) {
-        write(fd, input2(payload, len));
+        if (created) write(fd, input2(payload, len));
+      } else if (type == MSG_ATTACH) {
+        createDevice(fd);
+      } else if (type == MSG_DETACH) {
+        destroyDevice(fd);
       } else {
         log("unknown message type " + type);
       }
