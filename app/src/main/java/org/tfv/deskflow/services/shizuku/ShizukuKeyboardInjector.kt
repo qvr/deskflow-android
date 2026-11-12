@@ -24,8 +24,11 @@ import org.tfv.deskflow.uhid.UhidMain
  * Settings → Physical keyboard applies, apps get genuine key events (Escape,
  * Ctrl shortcuts, terminal keys), and the on-screen keyboard stays hidden.
  *
- * The keyboard exists while the feature is enabled, Shizuku is usable and the
- * client is connected to a server.
+ * The helper process runs while the feature is enabled, Shizuku is usable and
+ * the client is connected to a server. The input device itself exists only
+ * while the cursor is on this screen: Android hides on-screen keyboards while
+ * a hardware keyboard is attached, so it's removed when the cursor goes back
+ * to another screen, letting the device be used normally with its own IME.
  *
  * Threading: [handle], [releaseAll] and the lifecycle setters run on the main
  * thread (GlobalInputService's handler). [wouldInject] is safe from any thread
@@ -60,6 +63,8 @@ object ShizukuKeyboardInjector {
 
   private var wanted = false
   private var connected = false
+  /** Cursor is on this screen (server sent enter, not leave). */
+  private var screenActive = false
   private var restarts = 0
 
   /** Char → keystroke for the attached device's current layout; null while no device. */
@@ -120,6 +125,31 @@ object ShizukuKeyboardInjector {
     connected = value
     restarts = 0
     update()
+  }
+
+  /**
+   * Attach the virtual keyboard while the cursor is on this screen and remove
+   * it otherwise, so the normal on-screen keyboard works when Deskflow isn't
+   * controlling the device.
+   */
+  fun setScreenActive(value: Boolean) {
+    if (screenActive == value) return
+    screenActive = value
+    if (!ShizukuUhidKeyboard.isRunning) {
+      update()
+      return
+    }
+    if (value) {
+      log.info { "Cursor entered, attaching virtual keyboard" }
+      ShizukuUhidKeyboard.setAttached(true)
+      scheduleAttachCheck()
+    } else {
+      log.info { "Cursor left, detaching virtual keyboard" }
+      releaseAll()
+      ShizukuUhidKeyboard.setAttached(false)
+      detach()
+      statusFlow.value = Status.Ready
+    }
   }
 
   /** Stop everything, e.g. when the owning service is destroyed. */
@@ -237,7 +267,7 @@ object ShizukuKeyboardInjector {
       log.debug { "Input device $id is '${device.name}'" }
       return
     }
-    if (!wanted || !connected) {
+    if (!wanted || !connected || !screenActive) {
       log.info { "Ignoring virtual keyboard (device=$id) while not in use" }
       return
     }
@@ -286,18 +316,29 @@ object ShizukuKeyboardInjector {
       else -> Unit
     }
     if (ShizukuUhidKeyboard.isRunning) {
-      if (charMap == null) findExistingDevice()
+      if (charMap == null && screenActive) findExistingDevice()
       return
     }
     statusFlow.value = Status.Starting
-    val started = ShizukuUhidKeyboard.start(ctx) { code -> main.post { onHelperExit(code) } }
+    val started =
+      ShizukuUhidKeyboard.start(ctx, attached = screenActive) { code ->
+        main.post { onHelperExit(code) }
+      }
     if (!started) {
       statusFlow.value = Status.Error
       return
     }
-    // Backstop in case the device-added callback is missed.
+    if (screenActive) scheduleAttachCheck()
+    // The device is created when the cursor enters this screen.
+    else statusFlow.value = Status.Ready
+  }
+
+  /** Backstop in case the device-added callback is missed. */
+  private fun scheduleAttachCheck() {
     main.postDelayed(
-      { if (charMap == null && ShizukuUhidKeyboard.isRunning) findExistingDevice() },
+      {
+        if (charMap == null && screenActive && ShizukuUhidKeyboard.isRunning) findExistingDevice()
+      },
       ATTACH_CHECK_DELAY_MS,
     )
   }

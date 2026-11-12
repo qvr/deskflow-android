@@ -544,6 +544,10 @@ class GlobalInputService : AccessibilityService() {
 
     if (kbWasOpen) return
 
+    // The Shizuku hardware keyboard types server input itself and is detached
+    // while the cursor is elsewhere, so the user's own IME should stay.
+    if (ShizukuKeyboardInjector.status.value == ShizukuKeyboardInjector.Status.Ready) return
+
     if (!serviceClient.stateFlow.value.isConnected || !serviceClient.stateFlow.value.isEnabled) {
       return
     }
@@ -830,11 +834,14 @@ class GlobalInputService : AccessibilityService() {
           releaseWifiLowLatencyLock()
         }
 
-        // The virtual keyboard exists only while connected to a server.
+        // The virtual keyboard helper runs only while connected to a server.
         withContext(Dispatchers.Main) {
           ShizukuKeyboardInjector.setConnected(
             state.isConnected && state.isEnabled && state.ackReceived
           )
+          // Only attach the hardware keyboard while the cursor is here, so the
+          // device's own on-screen keyboard works when it's used directly.
+          ShizukuKeyboardInjector.setScreenActive(shouldShowPointer)
         }
 
         // When disconnected or disabled, reset IME tracking state
