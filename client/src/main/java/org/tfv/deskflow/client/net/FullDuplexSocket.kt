@@ -107,7 +107,12 @@ class FullDuplexSocket(
         return@start
       }
     }
-    thread = Thread({ runLoop() }, FullDuplexSocket::class.java.simpleName)
+    thread =
+      Thread({ runLoop() }, FullDuplexSocket::class.java.simpleName).apply {
+        // Reads every mouse move off the wire; on Android this maps to
+        // display-level priority so background load does not delay input.
+        priority = Thread.MAX_PRIORITY
+      }
     thread!!.start()
   }
 
