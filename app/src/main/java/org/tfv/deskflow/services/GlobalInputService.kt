@@ -46,6 +46,7 @@ import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
@@ -611,6 +612,12 @@ class GlobalInputService : AccessibilityService() {
   override fun onCreate() {
     super.onCreate()
     log.debug { "onCreate:${GlobalInputService::class.simpleName}" }
+
+    // Mouse and keyboard events are handled and the pointer moved on the main
+    // thread. Run it at display priority so it keeps up while the system is
+    // busy (app installs compiling in the background, etc.).
+    runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY) }
+      .onFailure { log.warn { "Could not raise main thread priority: ${it.message}" } }
 
     createNotificationChannel()
 
@@ -2211,7 +2218,11 @@ class GlobalInputService : AccessibilityService() {
     }
 
     when (event?.eventType) {
-      AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+      // Keyboard window shown/hidden. This used to run on every
+      // TYPE_WINDOW_CONTENT_CHANGED, which floods in while another app's UI
+      // churns (list updates, install progress), and each run queried the
+      // window list from system_server on the main thread.
+      AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
         checkIMESetup()
       }
       AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {

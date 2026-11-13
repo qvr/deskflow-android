@@ -95,7 +95,11 @@ class ConnectionService : Service() {
   private val broadcastThreadFactory = ThreadFactory { r ->
     synchronized(broadcastLock) {
       if (broadcastThread == null)
-        broadcastThread = Thread(r, "BroadcastEventLoopThread")
+        broadcastThread =
+          Thread(r, "BroadcastEventLoopThread").apply {
+            // Carries every mouse move; keep it ahead of background work.
+            priority = Thread.MAX_PRIORITY
+          }
 
       return@ThreadFactory broadcastThread
     }
