@@ -1,7 +1,6 @@
 package org.tfv.deskflow.services.shizuku
 
 import android.os.SystemClock
-import android.view.InputDevice
 import android.view.MotionEvent
 import org.tfv.deskflow.client.util.logging.KLoggingManager
 
@@ -88,52 +87,29 @@ class ShizukuMouseInjector(private val bridge: ShizukuInputBridge = ShizukuInput
   ) {
     if (!bridge.isReady) return
     val now = SystemClock.uptimeMillis()
-    val props =
-      MotionEvent.PointerProperties().apply {
-        id = 0
-        toolType = MotionEvent.TOOL_TYPE_MOUSE
-      }
-    val coords =
-      MotionEvent.PointerCoords().apply {
-        x = this@ShizukuMouseInjector.x
-        y = this@ShizukuMouseInjector.y
-        pressure = if (buttonState != 0) 1f else 0f
-        size = 1f
-        if (action == MotionEvent.ACTION_SCROLL) {
-          setAxisValue(MotionEvent.AXIS_HSCROLL, hScroll)
-          setAxisValue(MotionEvent.AXIS_VSCROLL, vScroll)
-        }
-      }
     // Events belonging to a pressed gesture share the DOWN's downTime.
     val inPressedStream =
       buttonState != 0 ||
         action == MotionEvent.ACTION_UP ||
         action == MotionEvent.ACTION_BUTTON_RELEASE
-    val event =
-      MotionEvent.obtain(
-        if (inPressedStream) downTime else now,
-        now,
-        action,
-        1,
-        arrayOf(props),
-        arrayOf(coords),
-        metaState,
-        buttonState,
-        1f,
-        1f,
-        DEVICE_ID,
-        0,
-        InputDevice.SOURCE_MOUSE,
-        0,
+    bridge.inject(
+      PointerEvent(
+        action = action,
+        actionButton = actionButton,
+        buttonState = buttonState,
+        metaState = metaState,
+        displayId = displayId,
+        x = x,
+        y = y,
+        hScroll = hScroll,
+        vScroll = vScroll,
+        downTime = if (inPressedStream) downTime else now,
+        eventTime = now,
       )
-    // The bridge takes ownership of the event and recycles it after injecting.
-    bridge.inject(event, displayId, actionButton)
+    )
   }
 
   companion object {
-    /** Same as scrcpy: injected events not tied to a real input device. */
-    private const val DEVICE_ID = 0
-
     /** Map a Deskflow button id to a MotionEvent button, or null if not a pointer button. */
     fun mapDeskflowButton(id: Int): Int? =
       when (id) {

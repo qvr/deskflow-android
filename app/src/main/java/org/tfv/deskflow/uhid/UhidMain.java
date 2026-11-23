@@ -3,17 +3,22 @@ package org.tfv.deskflow.uhid;
 import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
+import android.view.InputDevice;
+import android.view.InputEvent;
+import android.view.MotionEvent;
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.FileDescriptor;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 
 /**
- * Helper process that owns a virtual HID keyboard on /dev/uhid.
+ * Helper process that owns a virtual HID keyboard on /dev/uhid and injects mouse MotionEvents.
  *
  * <p>Runs as the shell user (launched through Shizuku, or {@code adb shell}):
  *
@@ -30,7 +35,15 @@ import java.util.Arrays;
  *   <li>type 1 = keyboard input report (8 bytes: modifiers, reserved, 6 key usages)
  *   <li>type 2 = attach: create the device if it doesn't exist (no payload)
  *   <li>type 3 = detach: destroy the device but keep running (no payload)
+ *   <li>type 4 = pointer event (see {@link #POINTER_PAYLOAD_SIZE}): injected as a SOURCE_MOUSE
+ *       MotionEvent through InputManager.injectInputEvent
  * </ul>
+ *
+ * <p>Pointer events are injected here rather than through a binder call from the app: the app's
+ * own process lacks INJECT_EVENTS, and relaying every event through the Shizuku server costs an
+ * extra IPC hop. They are handed to a separate thread so stdin is always drained (the app never
+ * blocks on a full pipe) and, while injection lags behind (system_server busy), consecutive
+ * moves collapse into the newest one instead of replaying stale positions.
  *
  * <p>The device is created at startup unless {@code --detached} is given. Detaching lets Android show the on-screen keyboard again
  * (it hides soft keyboards while a hardware keyboard is attached) without restarting the helper.
@@ -70,7 +83,20 @@ public final class UhidMain {
   public static final int MSG_KEYBOARD_REPORT = 1;
   public static final int MSG_ATTACH = 2;
   public static final int MSG_DETACH = 3;
+  public static final int MSG_POINTER = 4;
   public static final int KEYBOARD_REPORT_SIZE = 8;
+
+  /**
+   * Big-endian: action, actionButton, buttonState, metaState, displayId (int32); x, y, hScroll,
+   * vScroll (float32); downTime, eventTime (int64, SystemClock.uptimeMillis).
+   */
+  public static final int POINTER_PAYLOAD_SIZE = 5 * 4 + 4 * 4 + 2 * 8;
+
+  /** Written to stderr if pointer injection can't be set up, so the app can report it. */
+  public static final String POINTER_UNAVAILABLE = "pointer injection unavailable";
+
+  /** InputManager.INJECT_INPUT_EVENT_MODE_ASYNC */
+  private static final int INJECT_MODE_ASYNC = 0;
 
   /** Boot-protocol keyboard: modifiers, reserved, 5 LEDs (output), 6 key slots. */
   private static final int[] KEYBOARD_REPORT_DESC = {
@@ -170,6 +196,8 @@ public final class UhidMain {
   private static void pump(FileDescriptor fd) throws Exception {
     DataInputStream input = new DataInputStream(new BufferedInputStream(System.in));
     byte[] payload = new byte[255];
+    // Resolve the injection methods now rather than on the first mouse event.
+    Pointer.warmUp();
     while (true) {
       int type;
       try {
@@ -180,7 +208,10 @@ public final class UhidMain {
       }
       int len = input.readUnsignedByte();
       input.readFully(payload, 0, len);
-      if (type == MSG_KEYBOARD_REPORT) {
+      if (type == MSG_POINTER) {
+        if (len == POINTER_PAYLOAD_SIZE) Pointer.enqueue(Pointer.Event.parse(payload));
+        else log("bad pointer message length " + len);
+      } else if (type == MSG_KEYBOARD_REPORT) {
         if (created) write(fd, input2(payload, len));
       } else if (type == MSG_ATTACH) {
         createDevice(fd);
@@ -188,6 +219,189 @@ public final class UhidMain {
         destroyDevice(fd);
       } else {
         log("unknown message type " + type);
+      }
+    }
+  }
+
+  /** Injects pointer events on their own thread; see the class comment. */
+  private static final class Pointer {
+    static final class Event {
+      int action;
+      int actionButton;
+      int buttonState;
+      int metaState;
+      int displayId;
+      float x;
+      float y;
+      float hScroll;
+      float vScroll;
+      long downTime;
+      long eventTime;
+
+      static Event parse(byte[] p) {
+        ByteBuffer b = ByteBuffer.wrap(p, 0, POINTER_PAYLOAD_SIZE).order(ByteOrder.BIG_ENDIAN);
+        Event e = new Event();
+        e.action = b.getInt();
+        e.actionButton = b.getInt();
+        e.buttonState = b.getInt();
+        e.metaState = b.getInt();
+        e.displayId = b.getInt();
+        e.x = b.getFloat();
+        e.y = b.getFloat();
+        e.hScroll = b.getFloat();
+        e.vScroll = b.getFloat();
+        e.downTime = b.getLong();
+        e.eventTime = b.getLong();
+        return e;
+      }
+
+      boolean isMove() {
+        return action == MotionEvent.ACTION_HOVER_MOVE || action == MotionEvent.ACTION_MOVE;
+      }
+
+      /** Whether {@code next} may replace this queued event without changing what apps see. */
+      boolean canCoalesceWith(Event next) {
+        return isMove()
+            && next.action == action
+            && next.buttonState == buttonState
+            && next.metaState == metaState
+            && next.displayId == displayId
+            && next.downTime == downTime;
+      }
+    }
+
+    private static final ArrayDeque<Event> queue = new ArrayDeque<>();
+    private static Thread thread;
+    private static boolean unavailable = false;
+
+    private static Object inputManager;
+    private static Method injectInputEvent;
+    private static Method setDisplayId;
+    private static Method setActionButton;
+
+    static void warmUp() {
+      synchronized (queue) {
+        if (thread == null) start();
+      }
+    }
+
+    static void enqueue(Event e) {
+      synchronized (queue) {
+        if (unavailable) return;
+        if (thread == null) start();
+        Event last = queue.peekLast();
+        if (last != null && last.canCoalesceWith(e)) queue.pollLast();
+        queue.addLast(e);
+        queue.notify();
+      }
+    }
+
+    /** Called with the queue lock held. */
+    private static void start() {
+      thread =
+          new Thread(
+              () -> {
+                if (setUp()) run();
+              },
+              "pointer-inject");
+      thread.setDaemon(true);
+      thread.start();
+    }
+
+    private static boolean setUp() {
+      try {
+        // Same as the app's input threads: don't let background work delay the cursor.
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY);
+      } catch (Throwable ignored) {
+      }
+      try {
+        Class<?> cls;
+        try {
+          // Android 14+: the injection entry point moved to InputManagerGlobal.
+          cls = Class.forName("android.hardware.input.InputManagerGlobal");
+        } catch (ClassNotFoundException e) {
+          cls = Class.forName("android.hardware.input.InputManager");
+        }
+        inputManager = cls.getMethod("getInstance").invoke(null);
+        injectInputEvent = cls.getMethod("injectInputEvent", InputEvent.class, int.class);
+        setDisplayId = InputEvent.class.getMethod("setDisplayId", int.class);
+        try {
+          setActionButton = MotionEvent.class.getMethod("setActionButton", int.class);
+        } catch (Throwable err) {
+          log("MotionEvent.setActionButton unavailable: " + err);
+        }
+        log("pointer injection ready");
+        return true;
+      } catch (Throwable err) {
+        log(POINTER_UNAVAILABLE + ": " + err);
+        synchronized (queue) {
+          unavailable = true;
+          queue.clear();
+        }
+        return false;
+      }
+    }
+
+    private static void run() {
+      MotionEvent.PointerProperties[] props = {new MotionEvent.PointerProperties()};
+      props[0].id = 0;
+      props[0].toolType = MotionEvent.TOOL_TYPE_MOUSE;
+      MotionEvent.PointerCoords[] coords = {new MotionEvent.PointerCoords()};
+      while (true) {
+        Event e;
+        synchronized (queue) {
+          while (queue.isEmpty()) {
+            try {
+              queue.wait();
+            } catch (InterruptedException ignored) {
+              return;
+            }
+          }
+          e = queue.pollFirst();
+        }
+        inject(e, props, coords);
+      }
+    }
+
+    private static void inject(
+        Event e, MotionEvent.PointerProperties[] props, MotionEvent.PointerCoords[] coords) {
+      MotionEvent.PointerCoords c = coords[0];
+      c.clear();
+      c.x = e.x;
+      c.y = e.y;
+      c.pressure = e.buttonState != 0 ? 1f : 0f;
+      c.size = 1f;
+      if (e.action == MotionEvent.ACTION_SCROLL) {
+        c.setAxisValue(MotionEvent.AXIS_HSCROLL, e.hScroll);
+        c.setAxisValue(MotionEvent.AXIS_VSCROLL, e.vScroll);
+      }
+      MotionEvent event =
+          MotionEvent.obtain(
+              e.downTime,
+              e.eventTime,
+              e.action,
+              1,
+              props,
+              coords,
+              e.metaState,
+              e.buttonState,
+              1f,
+              1f,
+              0, // deviceId: not tied to a real input device, as in scrcpy
+              0,
+              InputDevice.SOURCE_MOUSE,
+              0);
+      try {
+        setDisplayId.invoke(event, e.displayId);
+        if (e.actionButton != 0 && setActionButton != null) {
+          setActionButton.invoke(event, e.actionButton);
+        }
+        Object ok = injectInputEvent.invoke(inputManager, event, INJECT_MODE_ASYNC);
+        if (!Boolean.TRUE.equals(ok)) log("injectInputEvent rejected: " + event);
+      } catch (Throwable err) {
+        log("injectInputEvent failed: " + err);
+      } finally {
+        event.recycle();
       }
     }
   }

@@ -386,9 +386,10 @@ class GlobalInputService : AccessibilityService() {
   private val keyboardWasOpen = AtomicBoolean(false)
 
   /**
-   * Injects real SOURCE_MOUSE events via Shizuku when enabled in prefs and the
-   * Shizuku user service is connected. Otherwise mouse input falls back to
-   * accessibility gestures. Only touched on the main thread.
+   * Injects real SOURCE_MOUSE events via Shizuku (through the shell helper
+   * process while connected) when enabled in prefs and Shizuku is usable.
+   * Otherwise mouse input falls back to accessibility gestures. Only touched
+   * on the main thread.
    */
   private val shizukuMouse = ShizukuMouseInjector()
 
@@ -841,11 +842,12 @@ class GlobalInputService : AccessibilityService() {
           releaseWifiLowLatencyLock()
         }
 
-        // The virtual keyboard helper runs only while connected to a server.
+        // The Shizuku helper process (virtual keyboard and mouse injection)
+        // runs only while connected to a server.
         withContext(Dispatchers.Main) {
-          ShizukuKeyboardInjector.setConnected(
-            state.isConnected && state.isEnabled && state.ackReceived
-          )
+          val connected = state.isConnected && state.isEnabled && state.ackReceived
+          ShizukuKeyboardInjector.setConnected(connected)
+          ShizukuInputBridge.setConnected(this@GlobalInputService, connected)
           // Only attach the hardware keyboard while the cursor is here, so the
           // device's own on-screen keyboard works when it's used directly.
           ShizukuKeyboardInjector.setScreenActive(shouldShowPointer)
