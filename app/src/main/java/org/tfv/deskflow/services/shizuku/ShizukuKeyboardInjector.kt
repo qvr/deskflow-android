@@ -18,7 +18,7 @@ import org.tfv.deskflow.uhid.UhidMain
 
 /**
  * Types Deskflow keyboard input on a virtual hardware keyboard (/dev/uhid via
- * [ShizukuUhidKeyboard]) instead of through the Deskflow IME.
+ * [ShizukuHelperProcess]) instead of through the Deskflow IME.
  *
  * Android treats the device as a real physical keyboard: the layout chosen in
  * Settings → Physical keyboard applies, apps get genuine key events (Escape,
@@ -66,6 +66,9 @@ object ShizukuKeyboardInjector {
   /** Cursor is on this screen (server sent enter, not leave). */
   private var screenActive = false
   private var restarts = 0
+
+  /** This feature holds [ShizukuHelperProcess] (it may also run for the mouse). */
+  private var helperAcquired = false
 
   /** Char → keystroke for the attached device's current layout; null while no device. */
   @Volatile private var charMap: Map<Int, UhidKeyMap.Stroke>? = null
@@ -135,18 +138,18 @@ object ShizukuKeyboardInjector {
   fun setScreenActive(value: Boolean) {
     if (screenActive == value) return
     screenActive = value
-    if (!ShizukuUhidKeyboard.isRunning) {
+    if (!helperAcquired) {
       update()
       return
     }
     if (value) {
       log.info { "Cursor entered, attaching virtual keyboard" }
-      ShizukuUhidKeyboard.setAttached(true)
+      ShizukuHelperProcess.setKeyboardAttached(true)
       scheduleAttachCheck()
     } else {
       log.info { "Cursor left, detaching virtual keyboard" }
       releaseAll()
-      ShizukuUhidKeyboard.setAttached(false)
+      ShizukuHelperProcess.setKeyboardAttached(false)
       detach()
       statusFlow.value = Status.Ready
     }
@@ -249,7 +252,7 @@ object ShizukuKeyboardInjector {
     val newest = pressed.values.lastOrNull()
     report[0] = (newest?.modifiers ?: heldModifiers).toByte()
     pressed.values.forEachIndexed { i, key -> report[2 + i] = key.usage.toByte() }
-    ShizukuUhidKeyboard.sendReport(report)
+    ShizukuHelperProcess.sendKeyboardReport(report)
   }
 
   private fun checkDevice(id: Int) {
@@ -262,7 +265,7 @@ object ShizukuKeyboardInjector {
     }
     val ours =
       device.vendorId == UhidMain.VENDOR_ID && device.productId == UhidMain.PRODUCT_ID ||
-        device.name == ShizukuUhidKeyboard.DEVICE_NAME
+        device.name == ShizukuHelperProcess.KEYBOARD_DEVICE_NAME
     if (!ours) {
       log.debug { "Input device $id is '${device.name}'" }
       return
@@ -297,10 +300,13 @@ object ShizukuKeyboardInjector {
   private fun update() {
     val ctx = appContext ?: return
     if (!wanted || !connected) {
-      if (ShizukuUhidKeyboard.isRunning) {
+      if (helperAcquired) {
         log.info { "Removing virtual keyboard" }
         releaseAll()
-        ShizukuUhidKeyboard.stop()
+        // The helper may keep running for Shizuku mouse injection.
+        ShizukuHelperProcess.setKeyboardAttached(false)
+        ShizukuHelperProcess.release(ShizukuHelperProcess.User.Keyboard)
+        helperAcquired = false
       }
       detach()
       statusFlow.value = if (!wanted) Status.Disabled else Status.WaitingForConnection
@@ -315,20 +321,24 @@ object ShizukuKeyboardInjector {
       }
       else -> Unit
     }
-    if (ShizukuUhidKeyboard.isRunning) {
+    if (helperAcquired) {
       if (charMap == null && screenActive) findExistingDevice()
       return
     }
     statusFlow.value = Status.Starting
     val started =
-      ShizukuUhidKeyboard.start(ctx, attached = screenActive) { code ->
+      ShizukuHelperProcess.acquire(ctx, ShizukuHelperProcess.User.Keyboard) { code ->
         main.post { onHelperExit(code) }
       }
     if (!started) {
       statusFlow.value = Status.Error
       return
     }
-    if (screenActive) scheduleAttachCheck()
+    helperAcquired = true
+    if (screenActive) {
+      ShizukuHelperProcess.setKeyboardAttached(true)
+      scheduleAttachCheck()
+    }
     // The device is created when the cursor enters this screen.
     else statusFlow.value = Status.Ready
   }
@@ -337,7 +347,7 @@ object ShizukuKeyboardInjector {
   private fun scheduleAttachCheck() {
     main.postDelayed(
       {
-        if (charMap == null && screenActive && ShizukuUhidKeyboard.isRunning) findExistingDevice()
+        if (charMap == null && screenActive && helperAcquired) findExistingDevice()
       },
       ATTACH_CHECK_DELAY_MS,
     )
@@ -358,6 +368,8 @@ object ShizukuKeyboardInjector {
   }
 
   private fun onHelperExit(code: Int?) {
+    // The helper dropped every user when it exited.
+    helperAcquired = false
     detach()
     if (!wanted || !connected) return
     if (restarts < MAX_RESTARTS) {
